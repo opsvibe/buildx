@@ -84,41 +84,34 @@ jobs:
           deps_root="$GITHUB_WORKSPACE/_deps/linux"
           install_dir="$deps_root/install"
           rm -rf "$deps_root"
-          mkdir -p "$deps_root/src/curl" "$deps_root/src/libsodium" "$install_dir"
+          mkdir -p "$deps_root" "$install_dir"
 
-          curl_tag="curl-8_17_0"
-          curl_archive="$deps_root/src/${curl_tag}.tar.gz"
-          curl_src="$deps_root/src/curl"
-          curl_url="https://github.com/curl/curl/archive/refs/tags/${curl_tag}.tar.gz"
-          curl_configure_args=(
-            -DCMAKE_BUILD_TYPE=Release
-            -DBUILD_SHARED_LIBS=ON
-            -DCMAKE_INSTALL_PREFIX="$install_dir"
-            -DCURL_USE_OPENSSL=ON
-            -DCURL_USE_LIBSSH2=OFF
-            -DCURL_ENABLE_SSL=ON
-            -DCURL_USE_SCHANNEL=OFF
-          )
+            curl_tag="curl-8_17_0"
+            curl_src="$deps_root/curl"
+            git clone --depth 1 --branch "$curl_tag" --recurse-submodules https://github.com/curl/curl.git "$curl_src"
 
-          libsodium_tag="1.0.20-RELEASE"
-          libsodium_archive="$deps_root/src/libsodium-${libsodium_tag}.tar.gz"
-          libsodium_src="$deps_root/src/libsodium"
-          libsodium_url="https://github.com/jedisct1/libsodium/archive/refs/tags/${libsodium_tag}.tar.gz"
+            libsodium_tag="1.0.20-RELEASE"
+            libsodium_src="$deps_root/libsodium"
+            git clone --depth 1 --branch "$libsodium_tag" --recurse-submodules https://github.com/jedisct1/libsodium.git "$libsodium_src"
 
-          curl --fail --location --output "$curl_archive" "$curl_url"
-          tar -xzf "$curl_archive" --strip-components=1 -C "$curl_src"
+            cmake -G Ninja -S "$curl_src" -B "$deps_root/build/curl" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_SHARED_LIBS=ON \
+              -DCMAKE_INSTALL_PREFIX="$install_dir" \
+              -DCURL_USE_OPENSSL=ON \
+              -DCURL_USE_LIBSSH2=OFF \
+              -DBUILD_CURL_EXE=OFF \
+              -DUSE_LIBIDN2=OFF \
+              -DUSE_LIBPSL=OFF \
+              -DUSE_NGHTTP2=OFF \
+              -DUSE_BROTLI=OFF
+            cmake --build "$deps_root/build/curl" --target install --parallel
 
-          curl --fail --location --output "$libsodium_archive" "$libsodium_url"
-          tar -xzf "$libsodium_archive" --strip-components=1 -C "$libsodium_src"
-
-          cmake -G Ninja -S "$curl_src" -B "$deps_root/build/curl" "${curl_configure_args[@]}"
-          cmake --build "$deps_root/build/curl" --target install --parallel
-
-          cmake -G Ninja -S "$libsodium_src" -B "$deps_root/build/libsodium" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_INSTALL_PREFIX="$install_dir"
-          cmake --build "$deps_root/build/libsodium" --target install --parallel
+            cmake -G Ninja -S "$libsodium_src" -B "$deps_root/build/libsodium" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_SHARED_LIBS=ON \
+              -DCMAKE_INSTALL_PREFIX="$install_dir"
+            cmake --build "$deps_root/build/libsodium" --target install --parallel
 
           echo "CMAKE_PREFIX_PATH=$install_dir${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" >> "$GITHUB_ENV"
           if [ -d "$install_dir/lib/pkgconfig" ]; then
@@ -321,23 +314,15 @@ jobs:
           deps_root="$GITHUB_WORKSPACE/_deps/macos"
           install_dir="$deps_root/install"
           rm -rf "$deps_root"
-          mkdir -p "$deps_root/src/curl" "$deps_root/src/libsodium" "$install_dir"
+          mkdir -p "$deps_root" "$install_dir"
 
           curl_tag="curl-8_17_0"
-          curl_archive="$deps_root/src/${curl_tag}.tar.gz"
-          curl_src="$deps_root/src/curl"
-          curl_url="https://github.com/curl/curl/archive/refs/tags/${curl_tag}.tar.gz"
+          curl_src="$deps_root/curl"
+          git clone --depth 1 --branch "$curl_tag" --recurse-submodules https://github.com/curl/curl.git "$curl_src"
 
           libsodium_tag="1.0.20-RELEASE"
-          libsodium_archive="$deps_root/src/libsodium-${libsodium_tag}.tar.gz"
-          libsodium_src="$deps_root/src/libsodium"
-          libsodium_url="https://github.com/jedisct1/libsodium/archive/refs/tags/${libsodium_tag}.tar.gz"
-
-          curl --fail --location --output "$curl_archive" "$curl_url"
-          tar -xzf "$curl_archive" --strip-components=1 -C "$curl_src"
-
-          curl --fail --location --output "$libsodium_archive" "$libsodium_url"
-          tar -xzf "$libsodium_archive" --strip-components=1 -C "$libsodium_src"
+          libsodium_src="$deps_root/libsodium"
+          git clone --depth 1 --branch "$libsodium_tag" --recurse-submodules https://github.com/jedisct1/libsodium.git "$libsodium_src"
 
           openssl_prefix="$(brew --prefix openssl@3)"
 
@@ -348,7 +333,11 @@ jobs:
             -DCURL_USE_OPENSSL=ON \
             -DOPENSSL_ROOT_DIR="$openssl_prefix" \
             -DCURL_USE_LIBSSH2=OFF \
-            -DCURL_USE_SCHANNEL=OFF
+            -DBUILD_CURL_EXE=OFF \
+            -DUSE_LIBIDN2=OFF \
+            -DUSE_LIBPSL=OFF \
+            -DUSE_NGHTTP2=OFF \
+            -DUSE_BROTLI=OFF
           cmake --build "$deps_root/build/curl" --target install --parallel
 
           cmake -G Ninja -S "$libsodium_src" -B "$deps_root/build/libsodium" \
@@ -555,27 +544,15 @@ jobs:
             Remove-Item $depsRoot -Recurse -Force
           }
           New-Item -ItemType Directory -Path $depsRoot | Out-Null
-          $srcRoot = [System.IO.Path]::Combine($depsRoot, 'src')
-          New-Item -ItemType Directory -Path $srcRoot | Out-Null
-          $curlSrc = [System.IO.Path]::Combine($srcRoot, 'curl')
-          $libsodiumSrc = [System.IO.Path]::Combine($srcRoot, 'libsodium')
-          New-Item -ItemType Directory -Path $curlSrc | Out-Null
-          New-Item -ItemType Directory -Path $libsodiumSrc | Out-Null
+          $curlSrc = [System.IO.Path]::Combine($depsRoot, 'curl')
+          $libsodiumSrc = [System.IO.Path]::Combine($depsRoot, 'libsodium')
           New-Item -ItemType Directory -Path $installDir | Out-Null
 
           $curlTag = 'curl-8_17_0'
-          $curlArchive = [System.IO.Path]::Combine($srcRoot, "$curlTag.tar.gz")
-          $curlUrl = "https://github.com/curl/curl/archive/refs/tags/$curlTag.tar.gz"
+          git clone --depth 1 --branch $curlTag --recurse-submodules https://github.com/curl/curl.git $curlSrc | Out-Null
 
           $libsodiumTag = '1.0.20-RELEASE'
-          $libsodiumArchive = [System.IO.Path]::Combine($srcRoot, "libsodium-$libsodiumTag.tar.gz")
-          $libsodiumUrl = "https://github.com/jedisct1/libsodium/archive/refs/tags/$libsodiumTag.tar.gz"
-
-          Invoke-WebRequest -Uri $curlUrl -OutFile $curlArchive -UseBasicParsing
-          tar -xzf $curlArchive --strip-components=1 -C $curlSrc
-
-          Invoke-WebRequest -Uri $libsodiumUrl -OutFile $libsodiumArchive -UseBasicParsing
-          tar -xzf $libsodiumArchive --strip-components=1 -C $libsodiumSrc
+          git clone --depth 1 --branch $libsodiumTag --recurse-submodules https://github.com/jedisct1/libsodium.git $libsodiumSrc | Out-Null
 
           $generatorArgs = @()
           if ($Env:CMAKE_GENERATOR) { $generatorArgs += @('-G', $Env:CMAKE_GENERATOR) }
@@ -586,7 +563,7 @@ jobs:
           $curlBuild = [System.IO.Path]::Combine($buildRoot, 'curl')
           $libsodiumBuild = [System.IO.Path]::Combine($buildRoot, 'libsodium')
 
-          cmake @generatorArgs -S $curlSrc -B $curlBuild -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=$installDir -DCURL_USE_SCHANNEL=ON -DCURL_USE_OPENSSL=OFF -DCURL_USE_LIBSSH2=OFF
+          cmake @generatorArgs -S $curlSrc -B $curlBuild -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=$installDir -DCURL_USE_SCHANNEL=ON -DCURL_USE_OPENSSL=OFF -DCURL_USE_LIBSSH2=OFF -DBUILD_CURL_EXE=OFF -DUSE_LIBIDN2=OFF -DUSE_LIBPSL=OFF -DUSE_NGHTTP2=OFF -DUSE_BROTLI=OFF
           cmake --build $curlBuild --target install --config Release
 
           cmake @generatorArgs -S $libsodiumSrc -B $libsodiumBuild -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=$installDir
