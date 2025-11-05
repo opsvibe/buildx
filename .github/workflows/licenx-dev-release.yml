@@ -68,7 +68,6 @@ jobs:
           ref: ${{ github.event.inputs.licenx-branch || 'main' }}
           path: ${{ env.LICENX_SUBMODULE_PATH }}
           fetch-depth: 0
-          submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
       - name: Install build dependencies
@@ -76,29 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ninja-build
-
-      - name: Setup vcpkg
-        id: run-vcpkg-linux
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: '74e6536215718009aae747d86d84b78376bf9e09'
-          vcpkgDirectory: ${{ format('{0}/vcpkg', env.LICENX_SOURCE_DIR) }}
-          runVcpkgInstall: true
-
-      - name: Configure vcpkg environment
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${VCPKG_ROOT:-}" ]; then
-            echo "VCPKG_ROOT is not defined after run-vcpkg" >&2
-            exit 1
-          fi
-          echo "CMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" >> "$GITHUB_ENV"
-          echo "VCPKG_DEFAULT_TRIPLET=x64-linux" >> "$GITHUB_ENV"
-          echo "VCPKG_DEFAULT_HOST_TRIPLET=x64-linux" >> "$GITHUB_ENV"
-          echo "VCPKG_TARGET_TRIPLET=x64-linux" >> "$GITHUB_ENV"
-          echo "VCPKG_DISABLE_METRICS=1" >> "$GITHUB_ENV"
+          sudo apt-get install -y ninja-build libcurl4-openssl-dev libsodium-dev pkg-config
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -277,31 +254,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          brew update
           if ! brew list ninja >/dev/null 2>&1; then
             brew install ninja
           fi
-
-      - name: Setup vcpkg
-        id: run-vcpkg-macos
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: '74e6536215718009aae747d86d84b78376bf9e09'
-          vcpkgDirectory: ${{ format('{0}/vcpkg', env.LICENX_SOURCE_DIR) }}
-          runVcpkgInstall: true
-
-      - name: Configure vcpkg environment
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${VCPKG_ROOT:-}" ]; then
-            echo "VCPKG_ROOT is not defined after run-vcpkg" >&2
-            exit 1
+          if ! brew list curl >/dev/null 2>&1; then
+            brew install curl
           fi
-          echo "CMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" >> "$GITHUB_ENV"
-          echo "VCPKG_DEFAULT_TRIPLET=x64-osx" >> "$GITHUB_ENV"
-          echo "VCPKG_DEFAULT_HOST_TRIPLET=x64-osx" >> "$GITHUB_ENV"
-          echo "VCPKG_TARGET_TRIPLET=x64-osx" >> "$GITHUB_ENV"
-          echo "VCPKG_DISABLE_METRICS=1" >> "$GITHUB_ENV"
+          if ! brew list libsodium >/dev/null 2>&1; then
+            brew install libsodium
+          fi
+          if ! brew list pkg-config >/dev/null 2>&1; then
+            brew install pkg-config
+          fi
+
+          curl_prefix="$(brew --prefix curl)"
+          if [ -d "$curl_prefix/lib/pkgconfig" ]; then
+            echo "PKG_CONFIG_PATH=$curl_prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          fi
+          echo "CMAKE_PREFIX_PATH=$curl_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" >> "$GITHUB_ENV"
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -477,28 +448,43 @@ jobs:
           submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
-      - name: Setup vcpkg
-        id: run-vcpkg-windows
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: '74e6536215718009aae747d86d84b78376bf9e09'
-          vcpkgDirectory: ${{ format('{0}/vcpkg', env.LICENX_SOURCE_DIR) }}
-          runVcpkgInstall: true
-
-      - name: Configure vcpkg environment
+      - name: Bootstrap vcpkg dependencies
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not $Env:VCPKG_ROOT) {
-            Write-Error 'VCPKG_ROOT is not defined after run-vcpkg.'
+          $vcpkgDir = Join-Path $Env:LICENX_SOURCE_DIR 'vcpkg'
+          if (-not (Test-Path $vcpkgDir)) {
+            Write-Host '::warning::vcpkg directory not found in LicenX source. Skipping dependency bootstrap.'
+            return
           }
 
-          $toolchain = Join-Path $Env:VCPKG_ROOT 'scripts/buildsystems/vcpkg.cmake'
-          "CMAKE_TOOLCHAIN_FILE=$toolchain" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-          'VCPKG_DEFAULT_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-          'VCPKG_DEFAULT_HOST_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-          'VCPKG_TARGET_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-          'VCPKG_DISABLE_METRICS=1' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          Push-Location $vcpkgDir
+          try {
+            if (-not (Test-Path (Join-Path $vcpkgDir 'vcpkg.exe'))) {
+              & .\bootstrap-vcpkg.bat -disableMetrics
+            }
+
+            $manifest = Get-ChildItem -Path $Env:LICENX_SOURCE_DIR -Filter 'vcpkg.json' -Recurse -File | Select-Object -First 1
+            if ($null -ne $manifest) {
+              & .\vcpkg.exe install --x-manifest-root "$($manifest.DirectoryName)" --triplet x64-windows --clean-after-build --binarycaching --disable-metrics
+            }
+            else {
+              Write-Host '::warning::No vcpkg manifest found. Installing required ports explicitly.'
+              & .\vcpkg.exe install curl[core,ssl] libsodium --triplet x64-windows --clean-after-build --binarycaching --disable-metrics
+            }
+          }
+          finally {
+            Pop-Location
+          }
+
+          $toolchain = Join-Path $vcpkgDir 'scripts/buildsystems/vcpkg.cmake'
+          if (Test-Path $toolchain) {
+            "CMAKE_TOOLCHAIN_FILE=$toolchain" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+            'VCPKG_DEFAULT_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+            'VCPKG_DEFAULT_HOST_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+            'VCPKG_TARGET_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+            'VCPKG_DISABLE_METRICS=1' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          }
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
