@@ -1,0 +1,3 @@
+[submodule "ergox/licenx"]
+	path = ergox/licenx
+	url = https://github.com/ergosumx/licenx.git
