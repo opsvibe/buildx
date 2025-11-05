@@ -40,14 +40,14 @@ jobs:
     env:
       CMAKE_GENERATOR: Ninja
       CMAKE_BUILD_TYPE: Release
-      CMAKE_MULTICONFIG: 'false'
+      CMAKE_MULTICONFIG: "false"
       ARTIFACT_PLATFORM_SUFFIX: linux
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: false
+          submodules: recursive
 
       - name: Prepare LicenX workspace
         shell: pwsh
@@ -68,6 +68,7 @@ jobs:
           ref: ${{ github.event.inputs.licenx-branch || 'main' }}
           path: ${{ env.LICENX_SUBMODULE_PATH }}
           fetch-depth: 0
+          submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
       - name: Install build dependencies
@@ -75,49 +76,13 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config libssl-dev zlib1g-dev
-
-      - name: Build third-party dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          deps_root="$GITHUB_WORKSPACE/_deps/linux"
-          install_dir="$deps_root/install"
-          rm -rf "$deps_root"
-          mkdir -p "$deps_root" "$install_dir"
-
-            curl_tag="curl-8_17_0"
-            curl_src="$deps_root/curl"
-            git clone --depth 1 --branch "$curl_tag" --recurse-submodules https://github.com/curl/curl.git "$curl_src"
-
-            libsodium_tag="1.0.20-RELEASE"
-            libsodium_src="$deps_root/libsodium"
-            git clone --depth 1 --branch "$libsodium_tag" --recurse-submodules https://github.com/jedisct1/libsodium.git "$libsodium_src"
-
-            cmake -G Ninja -S "$curl_src" -B "$deps_root/build/curl" \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DBUILD_SHARED_LIBS=ON \
-              -DCMAKE_INSTALL_PREFIX="$install_dir" \
-              -DCURL_USE_OPENSSL=ON \
-              -DCURL_USE_LIBSSH2=OFF \
-              -DBUILD_CURL_EXE=OFF \
-              -DUSE_LIBIDN2=OFF \
-              -DUSE_LIBPSL=OFF \
-              -DUSE_NGHTTP2=OFF \
-              -DUSE_BROTLI=OFF
-            cmake --build "$deps_root/build/curl" --target install --parallel
-
-            cmake -G Ninja -S "$libsodium_src" -B "$deps_root/build/libsodium" \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DBUILD_SHARED_LIBS=ON \
-              -DCMAKE_INSTALL_PREFIX="$install_dir"
-            cmake --build "$deps_root/build/libsodium" --target install --parallel
-
-          echo "CMAKE_PREFIX_PATH=$install_dir${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" >> "$GITHUB_ENV"
-          if [ -d "$install_dir/lib/pkgconfig" ]; then
-            echo "PKG_CONFIG_PATH=$install_dir/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
-          fi
-          echo "LD_LIBRARY_PATH=$install_dir/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          sudo apt-get install -y \
+            ninja-build \
+            pkg-config \
+            libcurl4-openssl-dev \
+            libsodium-dev \
+            libssl-dev \
+            zlib1g-dev
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -133,7 +98,9 @@ jobs:
             '-B', $Env:LICENX_BUILD_DIR,
             '-G', $Env:CMAKE_GENERATOR,
             "-DLICENX_ENVIRONMENT=$Env:LICENX_ENVIRONMENT_INPUT",
-            '-DLICENX_BUILD_TESTS=ON'
+            '-DLICENX_BUILD_TESTS=ON',
+            '-DLICENX_USE_VENDORED_DEPS=OFF',
+            '-DLICENX_BUILD_GATEWAY=OFF'
           )
           if ($Env:CMAKE_MULTICONFIG -ne 'true') {
             $cmakeArgs += "-DCMAKE_BUILD_TYPE=$Env:CMAKE_BUILD_TYPE"
@@ -261,14 +228,14 @@ jobs:
     env:
       CMAKE_GENERATOR: Ninja
       CMAKE_BUILD_TYPE: Release
-      CMAKE_MULTICONFIG: 'false'
+      CMAKE_MULTICONFIG: "false"
       ARTIFACT_PLATFORM_SUFFIX: macos
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: false
+          submodules: recursive
 
       - name: Prepare LicenX workspace
         shell: pwsh
@@ -297,62 +264,10 @@ jobs:
         run: |
           set -euo pipefail
           brew update
-          if ! brew list ninja >/dev/null 2>&1; then
-            brew install ninja
-          fi
-          if ! brew list pkg-config >/dev/null 2>&1; then
-            brew install pkg-config
-          fi
-          if ! brew list openssl@3 >/dev/null 2>&1; then
-            brew install openssl@3
-          fi
-
-      - name: Build third-party dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          deps_root="$GITHUB_WORKSPACE/_deps/macos"
-          install_dir="$deps_root/install"
-          rm -rf "$deps_root"
-          mkdir -p "$deps_root" "$install_dir"
-
-          curl_tag="curl-8_17_0"
-          curl_src="$deps_root/curl"
-          git clone --depth 1 --branch "$curl_tag" --recurse-submodules https://github.com/curl/curl.git "$curl_src"
-
-          libsodium_tag="1.0.20-RELEASE"
-          libsodium_src="$deps_root/libsodium"
-          git clone --depth 1 --branch "$libsodium_tag" --recurse-submodules https://github.com/jedisct1/libsodium.git "$libsodium_src"
-
-          openssl_prefix="$(brew --prefix openssl@3)"
-
-          cmake -G Ninja -S "$curl_src" -B "$deps_root/build/curl" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_INSTALL_PREFIX="$install_dir" \
-            -DCURL_USE_OPENSSL=ON \
-            -DOPENSSL_ROOT_DIR="$openssl_prefix" \
-            -DCURL_USE_LIBSSH2=OFF \
-            -DBUILD_CURL_EXE=OFF \
-            -DUSE_LIBIDN2=OFF \
-            -DUSE_LIBPSL=OFF \
-            -DUSE_NGHTTP2=OFF \
-            -DUSE_BROTLI=OFF
-          cmake --build "$deps_root/build/curl" --target install --parallel
-
-          cmake -G Ninja -S "$libsodium_src" -B "$deps_root/build/libsodium" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_INSTALL_PREFIX="$install_dir"
-          cmake --build "$deps_root/build/libsodium" --target install --parallel
-
-          echo "CMAKE_PREFIX_PATH=$install_dir${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" >> "$GITHUB_ENV"
-          if [ -d "$install_dir/lib/pkgconfig" ]; then
-            echo "PKG_CONFIG_PATH=$install_dir/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
-          fi
-          if [ -d "$install_dir/lib" ]; then
-            echo "DYLD_LIBRARY_PATH=$install_dir/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" >> "$GITHUB_ENV"
-          fi
+          brew install ninja pkg-config curl libsodium
+          curl_prefix="$(brew --prefix curl)"
+          sodium_prefix="$(brew --prefix libsodium)"
+          echo "PKG_CONFIG_PATH=$curl_prefix/lib/pkgconfig:$sodium_prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -368,7 +283,9 @@ jobs:
             '-B', $Env:LICENX_BUILD_DIR,
             '-G', $Env:CMAKE_GENERATOR,
             "-DLICENX_ENVIRONMENT=$Env:LICENX_ENVIRONMENT_INPUT",
-            '-DLICENX_BUILD_TESTS=ON'
+            '-DLICENX_BUILD_TESTS=ON',
+            '-DLICENX_USE_VENDORED_DEPS=OFF',
+            '-DLICENX_BUILD_GATEWAY=OFF'
           )
           if ($Env:CMAKE_MULTICONFIG -ne 'true') {
             $cmakeArgs += "-DCMAKE_BUILD_TYPE=$Env:CMAKE_BUILD_TYPE"
@@ -497,14 +414,14 @@ jobs:
       CMAKE_GENERATOR: "Visual Studio 17 2022"
       CMAKE_GENERATOR_PLATFORM: x64
       CMAKE_BUILD_TYPE: Release
-      CMAKE_MULTICONFIG: 'true'
+      CMAKE_MULTICONFIG: "true"
       ARTIFACT_PLATFORM_SUFFIX: windows
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: false
+          submodules: recursive
 
       - name: Prepare LicenX workspace
         shell: pwsh
@@ -528,58 +445,6 @@ jobs:
           submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
-      - name: Install build prerequisites
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          choco install ninja --no-progress --yes
-
-      - name: Build third-party dependencies
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $depsRoot = [System.IO.Path]::Combine($Env:GITHUB_WORKSPACE, '_deps', 'windows')
-          $installDir = [System.IO.Path]::Combine($depsRoot, 'install')
-          if (Test-Path $depsRoot) {
-            Remove-Item $depsRoot -Recurse -Force
-          }
-          New-Item -ItemType Directory -Path $depsRoot | Out-Null
-          $curlSrc = [System.IO.Path]::Combine($depsRoot, 'curl')
-          $libsodiumSrc = [System.IO.Path]::Combine($depsRoot, 'libsodium')
-          New-Item -ItemType Directory -Path $installDir | Out-Null
-
-          $curlTag = 'curl-8_17_0'
-          git clone --depth 1 --branch $curlTag --recurse-submodules https://github.com/curl/curl.git $curlSrc | Out-Null
-
-          $libsodiumTag = '1.0.20-RELEASE'
-          git clone --depth 1 --branch $libsodiumTag --recurse-submodules https://github.com/jedisct1/libsodium.git $libsodiumSrc | Out-Null
-
-          $generatorArgs = @()
-          if ($Env:CMAKE_GENERATOR) { $generatorArgs += @('-G', $Env:CMAKE_GENERATOR) }
-          if ($Env:CMAKE_GENERATOR_PLATFORM) { $generatorArgs += @('-A', $Env:CMAKE_GENERATOR_PLATFORM) }
-
-          $buildRoot = [System.IO.Path]::Combine($depsRoot, 'build')
-          New-Item -ItemType Directory -Path $buildRoot | Out-Null
-          $curlBuild = [System.IO.Path]::Combine($buildRoot, 'curl')
-          $libsodiumBuild = [System.IO.Path]::Combine($buildRoot, 'libsodium')
-
-          cmake @generatorArgs -S $curlSrc -B $curlBuild -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=$installDir -DCURL_USE_SCHANNEL=ON -DCURL_USE_OPENSSL=OFF -DCURL_USE_LIBSSH2=OFF -DBUILD_CURL_EXE=OFF -DUSE_LIBIDN2=OFF -DUSE_LIBPSL=OFF -DUSE_NGHTTP2=OFF -DUSE_BROTLI=OFF
-          cmake --build $curlBuild --target install --config Release
-
-          cmake @generatorArgs -S $libsodiumSrc -B $libsodiumBuild -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=$installDir
-          cmake --build $libsodiumBuild --target install --config Release
-
-          $existingPrefix = $Env:CMAKE_PREFIX_PATH
-          $prefixValue = if ([string]::IsNullOrWhiteSpace($existingPrefix)) { $installDir } else { "$installDir;$existingPrefix" }
-          "CMAKE_PREFIX_PATH=$prefixValue" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-
-          $binPath = [System.IO.Path]::Combine($installDir, 'bin')
-          if (Test-Path $binPath) {
-            $existingPath = $Env:PATH
-            $pathValue = if ([string]::IsNullOrWhiteSpace($existingPath)) { $binPath } else { "$binPath;$existingPath" }
-            "PATH=$pathValue" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-          }
-
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -594,7 +459,9 @@ jobs:
             '-B', $Env:LICENX_BUILD_DIR,
             '-G', $Env:CMAKE_GENERATOR,
             "-DLICENX_ENVIRONMENT=$Env:LICENX_ENVIRONMENT_INPUT",
-            '-DLICENX_BUILD_TESTS=ON'
+            '-DLICENX_BUILD_TESTS=ON',
+            '-DLICENX_USE_VENDORED_DEPS=ON',
+            '-DLICENX_BUILD_GATEWAY=OFF'
           )
           if ($Env:CMAKE_MULTICONFIG -ne 'true') {
             $cmakeArgs += "-DCMAKE_BUILD_TYPE=$Env:CMAKE_BUILD_TYPE"
@@ -726,14 +593,14 @@ jobs:
     env:
       CMAKE_GENERATOR: Ninja
       CMAKE_BUILD_TYPE: Release
-      CMAKE_MULTICONFIG: 'false'
+      CMAKE_MULTICONFIG: "false"
       ARTIFACT_PLATFORM_SUFFIX: linux
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: false
+          submodules: recursive
 
       - name: Prepare LicenX workspace
         shell: pwsh
@@ -762,7 +629,13 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ninja-build libcurl4-openssl-dev
+          sudo apt-get install -y \
+            ninja-build \
+            pkg-config \
+            libcurl4-openssl-dev \
+            libsodium-dev \
+            libssl-dev \
+            zlib1g-dev
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -778,7 +651,9 @@ jobs:
             '-B', $Env:LICENX_BUILD_DIR,
             '-G', $Env:CMAKE_GENERATOR,
             "-DLICENX_ENVIRONMENT=$Env:LICENX_ENVIRONMENT_INPUT",
-            '-DLICENX_BUILD_TESTS=OFF'
+            '-DLICENX_BUILD_TESTS=OFF',
+            '-DLICENX_USE_VENDORED_DEPS=OFF',
+            '-DLICENX_BUILD_GATEWAY=OFF'
           )
           if ($Env:CMAKE_MULTICONFIG -ne 'true') {
             $cmakeArgs += "-DCMAKE_BUILD_TYPE=$Env:CMAKE_BUILD_TYPE"
