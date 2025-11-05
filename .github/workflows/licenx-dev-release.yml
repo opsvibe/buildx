@@ -169,10 +169,10 @@ jobs:
           $outputDir = if ($multiConfig) { Join-Path $buildDir $Env:LICENX_BUILD_CONFIG } else { $buildDir }
 
           $cliCandidates = @(
-            Join-Path $outputDir 'licenx_admin_cli.exe',
-            Join-Path $outputDir 'licenx_admin_cli',
-            Join-Path $buildDir 'licenx_admin_cli.exe',
-            Join-Path $buildDir 'licenx_admin_cli'
+            (Join-Path -Path $outputDir -ChildPath 'licenx_admin_cli.exe')
+            (Join-Path -Path $outputDir -ChildPath 'licenx_admin_cli')
+            (Join-Path -Path $buildDir -ChildPath 'licenx_admin_cli.exe')
+            (Join-Path -Path $buildDir -ChildPath 'licenx_admin_cli')
           )
 
           $cliPath = $null
@@ -355,10 +355,10 @@ jobs:
           $outputDir = if ($multiConfig) { Join-Path $buildDir $Env:LICENX_BUILD_CONFIG } else { $buildDir }
 
           $cliCandidates = @(
-            Join-Path $outputDir 'licenx_admin_cli.exe',
-            Join-Path $outputDir 'licenx_admin_cli',
-            Join-Path $buildDir 'licenx_admin_cli.exe',
-            Join-Path $buildDir 'licenx_admin_cli'
+            (Join-Path -Path $outputDir -ChildPath 'licenx_admin_cli.exe')
+            (Join-Path -Path $outputDir -ChildPath 'licenx_admin_cli')
+            (Join-Path -Path $buildDir -ChildPath 'licenx_admin_cli.exe')
+            (Join-Path -Path $buildDir -ChildPath 'licenx_admin_cli')
           )
 
           $cliPath = $null
@@ -532,10 +532,10 @@ jobs:
           $outputDir = if ($multiConfig) { Join-Path $buildDir $Env:LICENX_BUILD_CONFIG } else { $buildDir }
 
           $cliCandidates = @(
-            Join-Path $outputDir 'licenx_admin_cli.exe',
-            Join-Path $outputDir 'licenx_admin_cli',
-            Join-Path $buildDir 'licenx_admin_cli.exe',
-            Join-Path $buildDir 'licenx_admin_cli'
+            (Join-Path -Path $outputDir -ChildPath 'licenx_admin_cli.exe')
+            (Join-Path -Path $outputDir -ChildPath 'licenx_admin_cli')
+            (Join-Path -Path $buildDir -ChildPath 'licenx_admin_cli.exe')
+            (Join-Path -Path $buildDir -ChildPath 'licenx_admin_cli')
           )
 
           $cliPath = $null
