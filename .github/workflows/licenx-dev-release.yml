@@ -1,4 +1,4 @@
-name: dev-release
+name: licenx-dev-release
 
 on:
   workflow_dispatch:
