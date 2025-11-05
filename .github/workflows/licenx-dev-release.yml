@@ -75,7 +75,56 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ninja-build libcurl4-openssl-dev libsodium-dev pkg-config
+          sudo apt-get install -y ninja-build pkg-config libssl-dev zlib1g-dev
+
+      - name: Build third-party dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          deps_root="$GITHUB_WORKSPACE/_deps/linux"
+          install_dir="$deps_root/install"
+          rm -rf "$deps_root"
+          mkdir -p "$deps_root/src/curl" "$deps_root/src/libsodium" "$install_dir"
+
+          curl_tag="curl-8_17_0"
+          curl_archive="$deps_root/src/${curl_tag}.tar.gz"
+          curl_src="$deps_root/src/curl"
+          curl_url="https://github.com/curl/curl/archive/refs/tags/${curl_tag}.tar.gz"
+          curl_configure_args=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DBUILD_SHARED_LIBS=ON
+            -DCMAKE_INSTALL_PREFIX="$install_dir"
+            -DCURL_USE_OPENSSL=ON
+            -DCURL_USE_LIBSSH2=OFF
+            -DCURL_ENABLE_SSL=ON
+            -DCURL_USE_SCHANNEL=OFF
+          )
+
+          libsodium_tag="1.0.20"
+          libsodium_archive="$deps_root/src/libsodium-${libsodium_tag}.tar.gz"
+          libsodium_src="$deps_root/src/libsodium"
+          libsodium_url="https://github.com/jedisct1/libsodium/archive/refs/tags/${libsodium_tag}.tar.gz"
+
+          curl --fail --location --output "$curl_archive" "$curl_url"
+          tar -xzf "$curl_archive" --strip-components=1 -C "$curl_src"
+
+          curl --fail --location --output "$libsodium_archive" "$libsodium_url"
+          tar -xzf "$libsodium_archive" --strip-components=1 -C "$libsodium_src"
+
+          cmake -G Ninja -S "$curl_src" -B "$deps_root/build/curl" "${curl_configure_args[@]}"
+          cmake --build "$deps_root/build/curl" --target install --parallel
+
+          cmake -G Ninja -S "$libsodium_src" -B "$deps_root/build/libsodium" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_INSTALL_PREFIX="$install_dir"
+          cmake --build "$deps_root/build/libsodium" --target install --parallel
+
+          echo "CMAKE_PREFIX_PATH=$install_dir${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" >> "$GITHUB_ENV"
+          if [ -d "$install_dir/lib/pkgconfig" ]; then
+            echo "PKG_CONFIG_PATH=$install_dir/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          fi
+          echo "LD_LIBRARY_PATH=$install_dir/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -258,21 +307,63 @@ jobs:
           if ! brew list ninja >/dev/null 2>&1; then
             brew install ninja
           fi
-          if ! brew list curl >/dev/null 2>&1; then
-            brew install curl
-          fi
-          if ! brew list libsodium >/dev/null 2>&1; then
-            brew install libsodium
-          fi
           if ! brew list pkg-config >/dev/null 2>&1; then
             brew install pkg-config
           fi
-
-          curl_prefix="$(brew --prefix curl)"
-          if [ -d "$curl_prefix/lib/pkgconfig" ]; then
-            echo "PKG_CONFIG_PATH=$curl_prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          if ! brew list openssl@3 >/dev/null 2>&1; then
+            brew install openssl@3
           fi
-          echo "CMAKE_PREFIX_PATH=$curl_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" >> "$GITHUB_ENV"
+
+      - name: Build third-party dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          deps_root="$GITHUB_WORKSPACE/_deps/macos"
+          install_dir="$deps_root/install"
+          rm -rf "$deps_root"
+          mkdir -p "$deps_root/src/curl" "$deps_root/src/libsodium" "$install_dir"
+
+          curl_tag="curl-8_17_0"
+          curl_archive="$deps_root/src/${curl_tag}.tar.gz"
+          curl_src="$deps_root/src/curl"
+          curl_url="https://github.com/curl/curl/archive/refs/tags/${curl_tag}.tar.gz"
+
+          libsodium_tag="1.0.20"
+          libsodium_archive="$deps_root/src/libsodium-${libsodium_tag}.tar.gz"
+          libsodium_src="$deps_root/src/libsodium"
+          libsodium_url="https://github.com/jedisct1/libsodium/archive/refs/tags/${libsodium_tag}.tar.gz"
+
+          curl --fail --location --output "$curl_archive" "$curl_url"
+          tar -xzf "$curl_archive" --strip-components=1 -C "$curl_src"
+
+          curl --fail --location --output "$libsodium_archive" "$libsodium_url"
+          tar -xzf "$libsodium_archive" --strip-components=1 -C "$libsodium_src"
+
+          openssl_prefix="$(brew --prefix openssl@3)"
+
+          cmake -G Ninja -S "$curl_src" -B "$deps_root/build/curl" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_INSTALL_PREFIX="$install_dir" \
+            -DCURL_USE_OPENSSL=ON \
+            -DOPENSSL_ROOT_DIR="$openssl_prefix" \
+            -DCURL_USE_LIBSSH2=OFF \
+            -DCURL_USE_SCHANNEL=OFF
+          cmake --build "$deps_root/build/curl" --target install --parallel
+
+          cmake -G Ninja -S "$libsodium_src" -B "$deps_root/build/libsodium" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_INSTALL_PREFIX="$install_dir"
+          cmake --build "$deps_root/build/libsodium" --target install --parallel
+
+          echo "CMAKE_PREFIX_PATH=$install_dir${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" >> "$GITHUB_ENV"
+          if [ -d "$install_dir/lib/pkgconfig" ]; then
+            echo "PKG_CONFIG_PATH=$install_dir/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          fi
+          if [ -d "$install_dir/lib" ]; then
+            echo "DYLD_LIBRARY_PATH=$install_dir/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          fi
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -448,42 +539,68 @@ jobs:
           submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
-      - name: Bootstrap vcpkg dependencies
+      - name: Install build prerequisites
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $vcpkgDir = Join-Path $Env:LICENX_SOURCE_DIR 'vcpkg'
-          if (-not (Test-Path $vcpkgDir)) {
-            Write-Host '::warning::vcpkg directory not found in LicenX source. Skipping dependency bootstrap.'
-            return
-          }
+          choco install ninja --no-progress --yes
 
-          Push-Location $vcpkgDir
-          try {
-            if (-not (Test-Path (Join-Path $vcpkgDir 'vcpkg.exe'))) {
-              & .\bootstrap-vcpkg.bat -disableMetrics
-            }
-
-            $manifest = Get-ChildItem -Path $Env:LICENX_SOURCE_DIR -Filter 'vcpkg.json' -Recurse -File | Select-Object -First 1
-            if ($null -ne $manifest) {
-              & .\vcpkg.exe install --x-manifest-root "$($manifest.DirectoryName)" --triplet x64-windows --clean-after-build --binarycaching --disable-metrics
-            }
-            else {
-              Write-Host '::warning::No vcpkg manifest found. Installing required ports explicitly.'
-              & .\vcpkg.exe install curl[core,ssl] libsodium --triplet x64-windows --clean-after-build --binarycaching --disable-metrics
-            }
+      - name: Build third-party dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $depsRoot = [System.IO.Path]::Combine($Env:GITHUB_WORKSPACE, '_deps', 'windows')
+          $installDir = [System.IO.Path]::Combine($depsRoot, 'install')
+          if (Test-Path $depsRoot) {
+            Remove-Item $depsRoot -Recurse -Force
           }
-          finally {
-            Pop-Location
-          }
+          New-Item -ItemType Directory -Path $depsRoot | Out-Null
+          $srcRoot = [System.IO.Path]::Combine($depsRoot, 'src')
+          New-Item -ItemType Directory -Path $srcRoot | Out-Null
+          $curlSrc = [System.IO.Path]::Combine($srcRoot, 'curl')
+          $libsodiumSrc = [System.IO.Path]::Combine($srcRoot, 'libsodium')
+          New-Item -ItemType Directory -Path $curlSrc | Out-Null
+          New-Item -ItemType Directory -Path $libsodiumSrc | Out-Null
+          New-Item -ItemType Directory -Path $installDir | Out-Null
 
-          $toolchain = Join-Path $vcpkgDir 'scripts/buildsystems/vcpkg.cmake'
-          if (Test-Path $toolchain) {
-            "CMAKE_TOOLCHAIN_FILE=$toolchain" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-            'VCPKG_DEFAULT_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-            'VCPKG_DEFAULT_HOST_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-            'VCPKG_TARGET_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-            'VCPKG_DISABLE_METRICS=1' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          $curlTag = 'curl-8_17_0'
+          $curlArchive = [System.IO.Path]::Combine($srcRoot, "$curlTag.tar.gz")
+          $curlUrl = "https://github.com/curl/curl/archive/refs/tags/$curlTag.tar.gz"
+
+          $libsodiumTag = '1.0.20'
+          $libsodiumArchive = [System.IO.Path]::Combine($srcRoot, "libsodium-$libsodiumTag.tar.gz")
+          $libsodiumUrl = "https://github.com/jedisct1/libsodium/archive/refs/tags/$libsodiumTag.tar.gz"
+
+          Invoke-WebRequest -Uri $curlUrl -OutFile $curlArchive -UseBasicParsing
+          tar -xzf $curlArchive --strip-components=1 -C $curlSrc
+
+          Invoke-WebRequest -Uri $libsodiumUrl -OutFile $libsodiumArchive -UseBasicParsing
+          tar -xzf $libsodiumArchive --strip-components=1 -C $libsodiumSrc
+
+          $generatorArgs = @()
+          if ($Env:CMAKE_GENERATOR) { $generatorArgs += @('-G', $Env:CMAKE_GENERATOR) }
+          if ($Env:CMAKE_GENERATOR_PLATFORM) { $generatorArgs += @('-A', $Env:CMAKE_GENERATOR_PLATFORM) }
+
+          $buildRoot = [System.IO.Path]::Combine($depsRoot, 'build')
+          New-Item -ItemType Directory -Path $buildRoot | Out-Null
+          $curlBuild = [System.IO.Path]::Combine($buildRoot, 'curl')
+          $libsodiumBuild = [System.IO.Path]::Combine($buildRoot, 'libsodium')
+
+          cmake @generatorArgs -S $curlSrc -B $curlBuild -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=$installDir -DCURL_USE_SCHANNEL=ON -DCURL_USE_OPENSSL=OFF -DCURL_USE_LIBSSH2=OFF
+          cmake --build $curlBuild --target install --config Release
+
+          cmake @generatorArgs -S $libsodiumSrc -B $libsodiumBuild -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=$installDir
+          cmake --build $libsodiumBuild --target install --config Release
+
+          $existingPrefix = $Env:CMAKE_PREFIX_PATH
+          $prefixValue = if ([string]::IsNullOrWhiteSpace($existingPrefix)) { $installDir } else { "$installDir;$existingPrefix" }
+          "CMAKE_PREFIX_PATH=$prefixValue" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+          $binPath = [System.IO.Path]::Combine($installDir, 'bin')
+          if (Test-Path $binPath) {
+            $existingPath = $Env:PATH
+            $pathValue = if ([string]::IsNullOrWhiteSpace($existingPath)) { $binPath } else { "$binPath;$existingPath" }
+            "PATH=$pathValue" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
           }
 
       - name: Setup .NET SDK
