@@ -25,20 +25,6 @@ permissions:
   id-token: write
   packages: write
 
-env:
-  LICENX_SUBMODULE_PATH: ergox/licenx
-  LICENX_SOURCE_DIR: ergox/licenx
-  LICENX_BUILD_DIR: ergox/licenx/build
-  LICENX_BUILD_CONFIG: Release
-  LICENX_ARTIFACT_ROOT: artifacts/licenx
-  LICENX_ENVIRONMENT_INPUT: ${{ github.event.inputs.licenx-environment || 'dev' }}
-  ACR_REGISTRY: ergox-ehaeg0gpesc0gag6
-  ACR_LOGIN_SERVER: ergox-ehaeg0gpesc0gag6.azurecr.io
-  ACR_IMAGE_NAME: licenxsrv
-  AZURE_STORAGE_ACCOUNT: ergoxbuild
-  AZURE_STORAGE_SHARE: dev
-  AZURE_STORAGE_PATH: licenx/latest
-
 jobs:
   build-linux:
     name: Build + Test (Linux)
@@ -77,30 +63,34 @@ jobs:
           submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
-      - name: Install native dependencies (vcpkg)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $vcpkgRoot = Join-Path $Env:RUNNER_TEMP 'vcpkg'
-          if (-not (Test-Path $vcpkgRoot)) {
-            git clone https://github.com/microsoft/vcpkg $vcpkgRoot
-            & (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat') -disableMetrics
-          }
-
-          $vcpkgExe = Join-Path $vcpkgRoot 'vcpkg.exe'
-          & $vcpkgExe install curl[ssl]:x64-windows
-
-          $toolchainPath = Join-Path $vcpkgRoot 'scripts\buildsystems\vcpkg.cmake'
-          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-          "VCPKG_DEFAULT_TRIPLET=x64-windows" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-          "CMAKE_TOOLCHAIN_FILE=$toolchainPath" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-
       - name: Install build dependencies
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ninja-build libcurl4-openssl-dev
+          sudo apt-get install -y ninja-build
+
+      - name: Setup vcpkg
+        id: run-vcpkg-linux
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: '${{ env.LICENX_SOURCE_DIR }}/vcpkg.json'
+          runVcpkgInstall: true
+
+      - name: Configure vcpkg environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${VCPKG_ROOT:-}" ]; then
+            echo "VCPKG_ROOT is not defined after run-vcpkg" >&2
+            exit 1
+          fi
+          echo "CMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" >> "$GITHUB_ENV"
+          echo "VCPKG_DEFAULT_TRIPLET=x64-linux" >> "$GITHUB_ENV"
+          echo "VCPKG_DEFAULT_HOST_TRIPLET=x64-linux" >> "$GITHUB_ENV"
+          echo "VCPKG_TARGET_TRIPLET=x64-linux" >> "$GITHUB_ENV"
+          echo "VCPKG_DISABLE_METRICS=1" >> "$GITHUB_ENV"
+
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -281,26 +271,27 @@ jobs:
           if ! brew list ninja >/dev/null 2>&1; then
             brew install ninja
           fi
-          if ! brew list curl >/dev/null 2>&1; then
-            brew install curl
-          fi
 
-          curl_prefix="$(brew --prefix curl)"
-          existing_prefix="${CMAKE_PREFIX_PATH:-}"
-          if [ -n "$existing_prefix" ]; then
-            echo "CMAKE_PREFIX_PATH=${curl_prefix}/lib/cmake;$existing_prefix" >> "$GITHUB_ENV"
-          else
-            echo "CMAKE_PREFIX_PATH=${curl_prefix}/lib/cmake" >> "$GITHUB_ENV"
-          fi
+      - name: Setup vcpkg
+        id: run-vcpkg-macos
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: '${{ env.LICENX_SOURCE_DIR }}/vcpkg.json'
+          runVcpkgInstall: true
 
-          if [ -d "${curl_prefix}/lib/pkgconfig" ]; then
-            existing_pkg="${PKG_CONFIG_PATH:-}"
-            if [ -n "$existing_pkg" ]; then
-              echo "PKG_CONFIG_PATH=${curl_prefix}/lib/pkgconfig:$existing_pkg" >> "$GITHUB_ENV"
-            else
-              echo "PKG_CONFIG_PATH=${curl_prefix}/lib/pkgconfig" >> "$GITHUB_ENV"
-            fi
+      - name: Configure vcpkg environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${VCPKG_ROOT:-}" ]; then
+            echo "VCPKG_ROOT is not defined after run-vcpkg" >&2
+            exit 1
           fi
+          echo "CMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" >> "$GITHUB_ENV"
+          echo "VCPKG_DEFAULT_TRIPLET=x64-osx" >> "$GITHUB_ENV"
+          echo "VCPKG_DEFAULT_HOST_TRIPLET=x64-osx" >> "$GITHUB_ENV"
+          echo "VCPKG_TARGET_TRIPLET=x64-osx" >> "$GITHUB_ENV"
+          echo "VCPKG_DISABLE_METRICS=1" >> "$GITHUB_ENV"
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -475,6 +466,28 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
+
+      - name: Setup vcpkg
+        id: run-vcpkg-windows
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: '${{ env.LICENX_SOURCE_DIR }}/vcpkg.json'
+          runVcpkgInstall: true
+
+      - name: Configure vcpkg environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $Env:VCPKG_ROOT) {
+            Write-Error 'VCPKG_ROOT is not defined after run-vcpkg.'
+          }
+
+          $toolchain = Join-Path $Env:VCPKG_ROOT 'scripts/buildsystems/vcpkg.cmake'
+          "CMAKE_TOOLCHAIN_FILE=$toolchain" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          'VCPKG_DEFAULT_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          'VCPKG_DEFAULT_HOST_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          'VCPKG_TARGET_TRIPLET=x64-windows' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          'VCPKG_DISABLE_METRICS=1' | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
