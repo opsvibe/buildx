@@ -804,7 +804,14 @@ jobs:
           Write-Host "Using ACR login server: $acrLoginServer"
           Write-Host "Using ACR image name: $acrImageName"
 
-          $context = Split-Path $dockerfile -Parent
+          $context = Join-Path $Env:GITHUB_WORKSPACE $Env:LICENX_SUBMODULE_PATH
+          if (-not (Test-Path $context)) {
+            throw "Docker build context $context not found."
+          }
+
+          $context = (Resolve-Path $context).Path
+          Write-Host "Using docker build context: $context"
+
           az acr login --name $Env:ACR_REGISTRY
 
           $tagInput = "${{ github.event.inputs.docker-image-tag }}"
@@ -822,7 +829,7 @@ jobs:
 
           Write-Host "Building image with tags: $fullTagLatest and $fullTagCustom"
 
-          docker build --file $dockerfile --build-arg LICENX_BUILD_DIR=$Env:LICENX_BUILD_DIR --tag $fullTagLatest --tag $fullTagCustom $context
+          docker build --file $dockerfile --tag $fullTagLatest --tag $fullTagCustom $context
           docker push $fullTagLatest
           if ($tag -ne 'latest') {
             docker push $fullTagCustom
