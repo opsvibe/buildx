@@ -77,6 +77,20 @@ jobs:
           $extraHeader = "Authorization: Basic $encoded"
           $Env:GIT_TERMINAL_PROMPT = '0'
 
+          $isWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+          $homePath = if ($isWindows) { $Env:USERPROFILE } else { $Env:HOME }
+          if ([string]::IsNullOrWhiteSpace($homePath)) {
+            throw 'Unable to determine runner home directory for Git credential provisioning.'
+          }
+
+          $netrcFileName = if ($isWindows) { '_netrc' } else { '.netrc' }
+          $netrcFile = Join-Path $homePath $netrcFileName
+          $netrcContent = "machine github.com`nlogin x-access-token`npassword $Env:SUBMODULE_TOKEN`n"
+          Set-Content -Path $netrcFile -Value $netrcContent -Encoding ascii
+          if (-not $isWindows) {
+            & chmod 600 $netrcFile
+          }
+
           git -c http.extraheader="$extraHeader" submodule sync --recursive $Env:LICENX_SUBMODULE_PATH
           git -c http.extraheader="$extraHeader" submodule update --init --recursive $Env:LICENX_SUBMODULE_PATH
 
@@ -94,6 +108,9 @@ jobs:
           Pop-Location
 
           Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
+          if (Test-Path $netrcFile) {
+            Remove-Item $netrcFile -Force
+          }
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -263,6 +280,13 @@ jobs:
           $extraHeader = "Authorization: Basic $encoded"
           $Env:GIT_TERMINAL_PROMPT = '0'
 
+          $netrcPath = Join-Path $Env:HOME '.netrc'
+          $netrcContent = "machine github.com`nlogin x-access-token`npassword $Env:SUBMODULE_TOKEN`n"
+          Set-Content -Path $netrcPath -Value $netrcContent -Encoding ascii
+          if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
+            & chmod 600 $netrcPath
+          }
+
           git -c http.extraheader="$extraHeader" submodule sync --recursive $Env:LICENX_SUBMODULE_PATH
           git -c http.extraheader="$extraHeader" submodule update --init --recursive $Env:LICENX_SUBMODULE_PATH
 
@@ -280,6 +304,9 @@ jobs:
           Pop-Location
 
           Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
+          if (Test-Path $netrcPath) {
+            Remove-Item $netrcPath -Force
+          }
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -442,6 +469,13 @@ jobs:
           $extraHeader = "Authorization: Basic $encoded"
           $Env:GIT_TERMINAL_PROMPT = '0'
 
+          $netrcPath = Join-Path $Env:HOME '.netrc'
+          $netrcContent = "machine github.com`nlogin x-access-token`npassword $Env:SUBMODULE_TOKEN`n"
+          Set-Content -Path $netrcPath -Value $netrcContent -Encoding ascii
+          if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
+            & chmod 600 $netrcPath
+          }
+
           git -c http.extraheader="$extraHeader" submodule sync --recursive $Env:LICENX_SUBMODULE_PATH
           git -c http.extraheader="$extraHeader" submodule update --init --recursive $Env:LICENX_SUBMODULE_PATH
 
@@ -459,6 +493,9 @@ jobs:
           Pop-Location
 
           Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
+          if (Test-Path $netrcPath) {
+            Remove-Item $netrcPath -Force
+          }
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -631,6 +668,13 @@ jobs:
           $extraHeader = "Authorization: Basic $encoded"
           $Env:GIT_TERMINAL_PROMPT = '0'
 
+          $netrcPath = Join-Path $Env:HOME '.netrc'
+          $netrcContent = "machine github.com`nlogin x-access-token`npassword $Env:SUBMODULE_TOKEN`n"
+          Set-Content -Path $netrcPath -Value $netrcContent -Encoding ascii
+          if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
+            & chmod 600 $netrcPath
+          }
+
           git -c http.extraheader="$extraHeader" submodule sync --recursive $Env:LICENX_SUBMODULE_PATH
           git -c http.extraheader="$extraHeader" submodule update --init --recursive $Env:LICENX_SUBMODULE_PATH
 
@@ -648,6 +692,9 @@ jobs:
           Pop-Location
 
           Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
+          if (Test-Path $netrcPath) {
+            Remove-Item $netrcPath -Force
+          }
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
