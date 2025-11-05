@@ -52,7 +52,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: false
+
+      - name: Prepare LicenX workspace
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $moduleDir = [System.IO.Path]::Combine($Env:GITHUB_WORKSPACE, '.git/modules', $Env:LICENX_SUBMODULE_PATH)
+          if (Test-Path $moduleDir) {
+            Remove-Item $moduleDir -Recurse -Force
+          }
+          if (Test-Path $Env:LICENX_SUBMODULE_PATH) {
+            Remove-Item $Env:LICENX_SUBMODULE_PATH -Recurse -Force
+          }
+
+      - name: Checkout LicenX source
+        uses: actions/checkout@v4
+        with:
+          repository: ergosumx/licenx
+          ref: ${{ github.event.inputs.licenx-branch || 'main' }}
+          path: ${{ env.LICENX_SUBMODULE_PATH }}
+          fetch-depth: 0
+          submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
       - name: Install build dependencies
@@ -61,57 +83,6 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y ninja-build
-
-      - name: Sync LicenX submodule latest ref
-        shell: pwsh
-        env:
-          SUBMODULE_TOKEN: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
-          LICENX_BRANCH: ${{ github.event.inputs.licenx-branch || 'main' }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ([string]::IsNullOrWhiteSpace($Env:SUBMODULE_TOKEN)) {
-            throw 'Secret ERGOX_SUBMODULE_TOKEN is required to access the private licenx repository.'
-          }
-
-          $encoded = [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes("$Env:SUBMODULE_TOKEN:x-oauth-basic"))
-          $extraHeader = "Authorization: Basic $encoded"
-          $Env:GIT_TERMINAL_PROMPT = '0'
-
-          $isWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
-          $homePath = if ($isWindows) { $Env:USERPROFILE } else { $Env:HOME }
-          if ([string]::IsNullOrWhiteSpace($homePath)) {
-            throw 'Unable to determine runner home directory for Git credential provisioning.'
-          }
-
-          $netrcFileName = if ($isWindows) { '_netrc' } else { '.netrc' }
-          $netrcFile = Join-Path $homePath $netrcFileName
-          $netrcContent = "machine github.com`nlogin x-access-token`npassword $Env:SUBMODULE_TOKEN`n"
-          Set-Content -Path $netrcFile -Value $netrcContent -Encoding ascii
-          if (-not $isWindows) {
-            & chmod 600 $netrcFile
-          }
-
-          git -c http.extraheader="$extraHeader" submodule sync --recursive $Env:LICENX_SUBMODULE_PATH
-          git -c http.extraheader="$extraHeader" submodule update --init --recursive $Env:LICENX_SUBMODULE_PATH
-
-          Push-Location $Env:LICENX_SUBMODULE_PATH
-          git -c http.extraheader="$extraHeader" fetch origin $Env:LICENX_BRANCH --depth 1
-          git checkout --detach FETCH_HEAD
-          git -c http.extraheader="$extraHeader" submodule sync --recursive
-          git -c http.extraheader="$extraHeader" submodule update --init --recursive
-          $cmakePath = Join-Path (Get-Location) 'CMakeLists.txt'
-          if (-not (Test-Path $cmakePath)) {
-            throw "CMakeLists.txt not found in $Env:LICENX_SUBMODULE_PATH after sync."
-          }
-          $commit = git rev-parse HEAD
-          Write-Host "::notice::Using LicenX commit $commit from $Env:LICENX_BRANCH"
-          Pop-Location
-
-          Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
-          if (Test-Path $netrcFile) {
-            Remove-Item $netrcFile -Force
-          }
-
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -254,7 +225,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: false
+
+      - name: Prepare LicenX workspace
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $moduleDir = [System.IO.Path]::Combine($Env:GITHUB_WORKSPACE, '.git/modules', $Env:LICENX_SUBMODULE_PATH)
+          if (Test-Path $moduleDir) {
+            Remove-Item $moduleDir -Recurse -Force
+          }
+          if (Test-Path $Env:LICENX_SUBMODULE_PATH) {
+            Remove-Item $Env:LICENX_SUBMODULE_PATH -Recurse -Force
+          }
+
+      - name: Checkout LicenX source
+        uses: actions/checkout@v4
+        with:
+          repository: ergosumx/licenx
+          ref: ${{ github.event.inputs.licenx-branch || 'main' }}
+          path: ${{ env.LICENX_SUBMODULE_PATH }}
+          fetch-depth: 0
+          submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
       - name: Install build dependencies
@@ -264,49 +257,6 @@ jobs:
           if ! brew list ninja >/dev/null 2>&1; then
             brew install ninja
           fi
-
-      - name: Sync LicenX submodule latest ref
-        shell: pwsh
-        env:
-          SUBMODULE_TOKEN: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
-          LICENX_BRANCH: ${{ github.event.inputs.licenx-branch || 'main' }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ([string]::IsNullOrWhiteSpace($Env:SUBMODULE_TOKEN)) {
-            throw 'Secret ERGOX_SUBMODULE_TOKEN is required to access the private licenx repository.'
-          }
-
-          $encoded = [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes("$Env:SUBMODULE_TOKEN:x-oauth-basic"))
-          $extraHeader = "Authorization: Basic $encoded"
-          $Env:GIT_TERMINAL_PROMPT = '0'
-
-          $netrcPath = Join-Path $Env:HOME '.netrc'
-          $netrcContent = "machine github.com`nlogin x-access-token`npassword $Env:SUBMODULE_TOKEN`n"
-          Set-Content -Path $netrcPath -Value $netrcContent -Encoding ascii
-          if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
-            & chmod 600 $netrcPath
-          }
-
-          git -c http.extraheader="$extraHeader" submodule sync --recursive $Env:LICENX_SUBMODULE_PATH
-          git -c http.extraheader="$extraHeader" submodule update --init --recursive $Env:LICENX_SUBMODULE_PATH
-
-          Push-Location $Env:LICENX_SUBMODULE_PATH
-          git -c http.extraheader="$extraHeader" fetch origin $Env:LICENX_BRANCH --depth 1
-          git checkout --detach FETCH_HEAD
-          git -c http.extraheader="$extraHeader" submodule sync --recursive
-          git -c http.extraheader="$extraHeader" submodule update --init --recursive
-          $cmakePath = Join-Path (Get-Location) 'CMakeLists.txt'
-          if (-not (Test-Path $cmakePath)) {
-            throw "CMakeLists.txt not found in $Env:LICENX_SUBMODULE_PATH after sync."
-          }
-          $commit = git rev-parse HEAD
-          Write-Host "::notice::Using LicenX commit $commit from $Env:LICENX_BRANCH"
-          Pop-Location
-
-          Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
-          if (Test-Path $netrcPath) {
-            Remove-Item $netrcPath -Force
-          }
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -451,51 +401,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: false
-          token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
-      - name: Sync LicenX submodule latest ref
+      - name: Prepare LicenX workspace
         shell: pwsh
-        env:
-          SUBMODULE_TOKEN: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
-          LICENX_BRANCH: ${{ github.event.inputs.licenx-branch || 'main' }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if ([string]::IsNullOrWhiteSpace($Env:SUBMODULE_TOKEN)) {
-            throw 'Secret ERGOX_SUBMODULE_TOKEN is required to access the private licenx repository.'
+          $moduleDir = [System.IO.Path]::Combine($Env:GITHUB_WORKSPACE, '.git/modules', $Env:LICENX_SUBMODULE_PATH)
+          if (Test-Path $moduleDir) {
+            Remove-Item $moduleDir -Recurse -Force
+          }
+          if (Test-Path $Env:LICENX_SUBMODULE_PATH) {
+            Remove-Item $Env:LICENX_SUBMODULE_PATH -Recurse -Force
           }
 
-          $encoded = [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes("$Env:SUBMODULE_TOKEN:x-oauth-basic"))
-          $extraHeader = "Authorization: Basic $encoded"
-          $Env:GIT_TERMINAL_PROMPT = '0'
-
-          $netrcPath = Join-Path $Env:HOME '.netrc'
-          $netrcContent = "machine github.com`nlogin x-access-token`npassword $Env:SUBMODULE_TOKEN`n"
-          Set-Content -Path $netrcPath -Value $netrcContent -Encoding ascii
-          if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
-            & chmod 600 $netrcPath
-          }
-
-          git -c http.extraheader="$extraHeader" submodule sync --recursive $Env:LICENX_SUBMODULE_PATH
-          git -c http.extraheader="$extraHeader" submodule update --init --recursive $Env:LICENX_SUBMODULE_PATH
-
-          Push-Location $Env:LICENX_SUBMODULE_PATH
-          git -c http.extraheader="$extraHeader" fetch origin $Env:LICENX_BRANCH --depth 1
-          git checkout --detach FETCH_HEAD
-          git -c http.extraheader="$extraHeader" submodule sync --recursive
-          git -c http.extraheader="$extraHeader" submodule update --init --recursive
-          $cmakePath = Join-Path (Get-Location) 'CMakeLists.txt'
-          if (-not (Test-Path $cmakePath)) {
-            throw "CMakeLists.txt not found in $Env:LICENX_SUBMODULE_PATH after sync."
-          }
-          $commit = git rev-parse HEAD
-          Write-Host "::notice::Using LicenX commit $commit from $Env:LICENX_BRANCH"
-          Pop-Location
-
-          Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
-          if (Test-Path $netrcPath) {
-            Remove-Item $netrcPath -Force
-          }
+      - name: Checkout LicenX source
+        uses: actions/checkout@v4
+        with:
+          repository: ergosumx/licenx
+          ref: ${{ github.event.inputs.licenx-branch || 'main' }}
+          path: ${{ env.LICENX_SUBMODULE_PATH }}
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -643,7 +572,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: false
+
+      - name: Prepare LicenX workspace
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $moduleDir = [System.IO.Path]::Combine($Env:GITHUB_WORKSPACE, '.git/modules', $Env:LICENX_SUBMODULE_PATH)
+          if (Test-Path $moduleDir) {
+            Remove-Item $moduleDir -Recurse -Force
+          }
+          if (Test-Path $Env:LICENX_SUBMODULE_PATH) {
+            Remove-Item $Env:LICENX_SUBMODULE_PATH -Recurse -Force
+          }
+
+      - name: Checkout LicenX source
+        uses: actions/checkout@v4
+        with:
+          repository: ergosumx/licenx
+          ref: ${{ github.event.inputs.licenx-branch || 'main' }}
+          path: ${{ env.LICENX_SUBMODULE_PATH }}
+          fetch-depth: 0
+          submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
 
       - name: Install build dependencies
@@ -652,49 +603,6 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y ninja-build
-
-      - name: Sync LicenX submodule latest ref
-        shell: pwsh
-        env:
-          SUBMODULE_TOKEN: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
-          LICENX_BRANCH: ${{ github.event.inputs.licenx-branch || 'main' }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ([string]::IsNullOrWhiteSpace($Env:SUBMODULE_TOKEN)) {
-            throw 'Secret ERGOX_SUBMODULE_TOKEN is required to access the private licenx repository.'
-          }
-
-          $encoded = [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes("$Env:SUBMODULE_TOKEN:x-oauth-basic"))
-          $extraHeader = "Authorization: Basic $encoded"
-          $Env:GIT_TERMINAL_PROMPT = '0'
-
-          $netrcPath = Join-Path $Env:HOME '.netrc'
-          $netrcContent = "machine github.com`nlogin x-access-token`npassword $Env:SUBMODULE_TOKEN`n"
-          Set-Content -Path $netrcPath -Value $netrcContent -Encoding ascii
-          if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
-            & chmod 600 $netrcPath
-          }
-
-          git -c http.extraheader="$extraHeader" submodule sync --recursive $Env:LICENX_SUBMODULE_PATH
-          git -c http.extraheader="$extraHeader" submodule update --init --recursive $Env:LICENX_SUBMODULE_PATH
-
-          Push-Location $Env:LICENX_SUBMODULE_PATH
-          git -c http.extraheader="$extraHeader" fetch origin $Env:LICENX_BRANCH --depth 1
-          git checkout --detach FETCH_HEAD
-          git -c http.extraheader="$extraHeader" submodule sync --recursive
-          git -c http.extraheader="$extraHeader" submodule update --init --recursive
-          $cmakePath = Join-Path (Get-Location) 'CMakeLists.txt'
-          if (-not (Test-Path $cmakePath)) {
-            throw "CMakeLists.txt not found in $Env:LICENX_SUBMODULE_PATH after sync."
-          }
-          $commit = git rev-parse HEAD
-          Write-Host "::notice::Using LicenX commit $commit from $Env:LICENX_BRANCH"
-          Pop-Location
-
-          Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
-          if (Test-Path $netrcPath) {
-            Remove-Item $netrcPath -Force
-          }
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
