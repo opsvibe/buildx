@@ -817,8 +817,8 @@ jobs:
 
           $tag = $tag.Trim()
 
-          $fullTagLatest = "$acrLoginServer/$acrImageName:latest"
-          $fullTagCustom = "$acrLoginServer/$acrImageName:$tag"
+          $fullTagLatest = "$acrLoginServer/${acrImageName}:latest"
+          $fullTagCustom = "$acrLoginServer/${acrImageName}:${tag}"
 
           Write-Host "Building image with tags: $fullTagLatest and $fullTagCustom"
 
