@@ -16,6 +16,10 @@ on:
         description: LicenX submodule branch or ref to build
         default: main
         required: false
+      licenx-tag:
+        description: Optional release tag (vX.Y.Z). If provided, this will be used to checkout the submodule and will be appended to artifacts.
+        default: ""
+        required: false
       dockerfile-relative-path:
         description: Optional Dockerfile path relative to licenx submodule
         default: docker/Dockerfile
@@ -37,6 +41,7 @@ env:
   LICENX_BUILD_CONFIG: Release
   LICENX_ARTIFACT_ROOT: ergox/licenx/artifacts
   LICENX_ENVIRONMENT_INPUT: ${{ github.event.inputs.licenx-environment || 'dev' }}
+  LICENX_TAG: ${{ github.event.inputs.licenx-tag || '' }}
   AZURE_STORAGE_ACCOUNT: ergoxbuild
   AZURE_STORAGE_PATH: licenx
   ACR_REGISTRY: ergox
@@ -75,11 +80,407 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ergosumx/licenx
-          ref: ${{ github.event.inputs.licenx-branch || 'main' }}
+          ref: ${{ github.event.inputs.licenx-tag || github.event.inputs.licenx-branch || 'main' }}
           path: ${{ env.LICENX_SUBMODULE_PATH }}
           fetch-depth: 0
           submodules: recursive
           token: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
+
+      - name: Prepare LicenX version metadata
+        shell: pwsh
+        env:
+          INPUT_TAG: ${{ env.LICENX_TAG }}
+          INPUT_DOCKER_TAG: ${{ github.event.inputs.docker-image-tag || '' }}
+          SUBMODULE_PATH: ${{ env.LICENX_SUBMODULE_PATH }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tagInput = $Env:INPUT_TAG
+          $dockerInput = $Env:INPUT_DOCKER_TAG
+          $workspace = $Env:GITHUB_WORKSPACE
+          $submoduleRel = $Env:SUBMODULE_PATH
+          $submoduleFull = if ([string]::IsNullOrWhiteSpace($submoduleRel)) { $null } else { Join-Path $workspace $submoduleRel }
+
+          $candidate = $null
+          if (-not [string]::IsNullOrWhiteSpace($tagInput)) {
+            $candidate = $tagInput.Trim()
+          }
+          elseif (-not [string]::IsNullOrWhiteSpace($dockerInput)) {
+            $candidate = $dockerInput.Trim()
+          }
+          elseif ($submoduleFull -and (Test-Path $submoduleFull)) {
+            try {
+              $shortSha = (& git -C $submoduleFull rev-parse --short=8 HEAD).Trim()
+              if (-not [string]::IsNullOrWhiteSpace($shortSha)) {
+                $candidate = "build-$shortSha"
+              }
+            }
+            catch {
+              Write-Warning "Failed to resolve LicenX commit hash: $_"
+            }
+          }
+
+          if ([string]::IsNullOrWhiteSpace($candidate)) {
+            $candidate = '0.0.0'
+          }
+
+          $fileSafe = $candidate -replace '[^0-9A-Za-z.+-]', '-'
+          if ([string]::IsNullOrWhiteSpace($fileSafe)) {
+            $fileSafe = '0.0.0'
+          }
+
+          $dockerSafe = $fileSafe.ToLowerInvariant()
+
+          $dockerSafe = $fileSafe.ToLowerInvariant()
+
+          $numericSource = $fileSafe
+          if ($numericSource.StartsWith('v', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $numericSource = $numericSource.Substring(1)
+          }
+
+          $numericCore = $numericSource.Split('-', 2)[0]
+          if ([string]::IsNullOrWhiteSpace($numericCore)) {
+            $numericCore = '0.0.0'
+          }
+
+          $segments = $numericCore.Split('.', [System.StringSplitOptions]::RemoveEmptyEntries)
+          if ($segments.Count -eq 0) {
+            $segments = @('0','0','0')
+          }
+
+          $intSegments = @()
+          foreach ($segment in $segments) {
+            if ($segment -match '^[0-9]+$') {
+              $intSegments += [int]$segment
+            }
+            else {
+              $intSegments += 0
+            }
+          }
+          while ($intSegments.Count -lt 4) {
+            $intSegments += 0
+          }
+
+          $major = $intSegments[0]
+          $minor = $intSegments[1]
+          $patch = $intSegments[2]
+          $build = $intSegments[3]
+
+          $semver = "{0}.{1}.{2}" -f $major, $minor, $patch
+          $productVersion = "{0}.{1}.{2}.{3}" -f $major, $minor, $patch, $build
+          $fileVersion = "{0},{1},{2},{3}" -f $major, $minor, $patch, $build
+          $hasTag = if ([string]::IsNullOrWhiteSpace($tagInput)) { 'false' } else { 'true' }
+
+          @(
+            "LICENX_VERSION_INPUT=$candidate"
+            "LICENX_VERSION_FILESAFE=$fileSafe"
+            "LICENX_VERSION_STRING=$fileSafe"
+            "LICENX_VERSION_SEMVER=$semver"
+            "LICENX_VERSION_MAJOR=$major"
+            "LICENX_VERSION_MINOR=$minor"
+            "LICENX_VERSION_PATCH=$patch"
+            "LICENX_VERSION_BUILD=$build"
+            "LICENX_VERSION_PRODUCT_VERSION=$productVersion"
+            "LICENX_VERSION_FILE_VERSION=$fileVersion"
+            "LICENX_VERSION_HAS_TAG=$hasTag"
+            "LICENX_VERSION_DOCKER_TAG=$dockerSafe"
+          ) | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+          Write-Host "Resolved LicenX version: $fileSafe (semver: $semver)"
+
+      - name: Prepare LicenX version metadata
+        shell: pwsh
+        env:
+          INPUT_TAG: ${{ env.LICENX_TAG }}
+          INPUT_DOCKER_TAG: ${{ github.event.inputs.docker-image-tag || '' }}
+          SUBMODULE_PATH: ${{ env.LICENX_SUBMODULE_PATH }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tagInput = $Env:INPUT_TAG
+          $dockerInput = $Env:INPUT_DOCKER_TAG
+          $workspace = $Env:GITHUB_WORKSPACE
+          $submoduleRel = $Env:SUBMODULE_PATH
+          $submoduleFull = if ([string]::IsNullOrWhiteSpace($submoduleRel)) { $null } else { Join-Path $workspace $submoduleRel }
+
+          $candidate = $null
+          if (-not [string]::IsNullOrWhiteSpace($tagInput)) {
+            $candidate = $tagInput.Trim()
+          }
+          elseif (-not [string]::IsNullOrWhiteSpace($dockerInput)) {
+            $candidate = $dockerInput.Trim()
+          }
+          elseif ($submoduleFull -and (Test-Path $submoduleFull)) {
+            try {
+              $shortSha = (& git -C $submoduleFull rev-parse --short=8 HEAD).Trim()
+              if (-not [string]::IsNullOrWhiteSpace($shortSha)) {
+                $candidate = "build-$shortSha"
+              }
+            }
+            catch {
+              Write-Warning "Failed to resolve LicenX commit hash: $_"
+            }
+          }
+
+          if ([string]::IsNullOrWhiteSpace($candidate)) {
+            $candidate = '0.0.0'
+          }
+
+          $fileSafe = $candidate -replace '[^0-9A-Za-z.+-]', '-'
+          if ([string]::IsNullOrWhiteSpace($fileSafe)) {
+            $fileSafe = '0.0.0'
+          }
+
+          $dockerSafe = $fileSafe.ToLowerInvariant()
+
+          $numericSource = $fileSafe
+          if ($numericSource.StartsWith('v', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $numericSource = $numericSource.Substring(1)
+          }
+
+          $numericCore = $numericSource.Split('-', 2)[0]
+          if ([string]::IsNullOrWhiteSpace($numericCore)) {
+            $numericCore = '0.0.0'
+          }
+
+          $segments = $numericCore.Split('.', [System.StringSplitOptions]::RemoveEmptyEntries)
+          if ($segments.Count -eq 0) {
+            $segments = @('0','0','0')
+          }
+
+          $intSegments = @()
+          foreach ($segment in $segments) {
+            if ($segment -match '^[0-9]+$') {
+              $intSegments += [int]$segment
+            }
+            else {
+              $intSegments += 0
+            }
+          }
+          while ($intSegments.Count -lt 4) {
+            $intSegments += 0
+          }
+
+          $major = $intSegments[0]
+          $minor = $intSegments[1]
+          $patch = $intSegments[2]
+          $build = $intSegments[3]
+
+          $semver = "{0}.{1}.{2}" -f $major, $minor, $patch
+          $productVersion = "{0}.{1}.{2}.{3}" -f $major, $minor, $patch, $build
+          $fileVersion = "{0},{1},{2},{3}" -f $major, $minor, $patch, $build
+          $hasTag = if ([string]::IsNullOrWhiteSpace($tagInput)) { 'false' } else { 'true' }
+
+          @(
+            "LICENX_VERSION_INPUT=$candidate"
+            "LICENX_VERSION_FILESAFE=$fileSafe"
+            "LICENX_VERSION_STRING=$fileSafe"
+            "LICENX_VERSION_SEMVER=$semver"
+            "LICENX_VERSION_MAJOR=$major"
+            "LICENX_VERSION_MINOR=$minor"
+            "LICENX_VERSION_PATCH=$patch"
+            "LICENX_VERSION_BUILD=$build"
+            "LICENX_VERSION_PRODUCT_VERSION=$productVersion"
+            "LICENX_VERSION_FILE_VERSION=$fileVersion"
+            "LICENX_VERSION_HAS_TAG=$hasTag"
+            "LICENX_VERSION_DOCKER_TAG=$dockerSafe"
+          ) | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+          Write-Host "Resolved LicenX version: $fileSafe (semver: $semver)"
+
+      - name: Prepare LicenX version metadata
+        shell: pwsh
+        env:
+          INPUT_TAG: ${{ env.LICENX_TAG }}
+          INPUT_DOCKER_TAG: ${{ github.event.inputs.docker-image-tag || '' }}
+          SUBMODULE_PATH: ${{ env.LICENX_SUBMODULE_PATH }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tagInput = $Env:INPUT_TAG
+          $dockerInput = $Env:INPUT_DOCKER_TAG
+          $workspace = $Env:GITHUB_WORKSPACE
+          $submoduleRel = $Env:SUBMODULE_PATH
+          $submoduleFull = if ([string]::IsNullOrWhiteSpace($submoduleRel)) { $null } else { Join-Path $workspace $submoduleRel }
+
+          $candidate = $null
+          if (-not [string]::IsNullOrWhiteSpace($tagInput)) {
+            $candidate = $tagInput.Trim()
+          }
+          elseif (-not [string]::IsNullOrWhiteSpace($dockerInput)) {
+            $candidate = $dockerInput.Trim()
+          }
+          elseif ($submoduleFull -and (Test-Path $submoduleFull)) {
+            try {
+              $shortSha = (& git -C $submoduleFull rev-parse --short=8 HEAD).Trim()
+              if (-not [string]::IsNullOrWhiteSpace($shortSha)) {
+                $candidate = "build-$shortSha"
+              }
+            }
+            catch {
+              Write-Warning "Failed to resolve LicenX commit hash: $_"
+            }
+          }
+
+          if ([string]::IsNullOrWhiteSpace($candidate)) {
+            $candidate = '0.0.0'
+          }
+
+          $fileSafe = $candidate -replace '[^0-9A-Za-z.+-]', '-'
+          if ([string]::IsNullOrWhiteSpace($fileSafe)) {
+            $fileSafe = '0.0.0'
+          }
+
+          $dockerSafe = $fileSafe.ToLowerInvariant()
+
+          $numericSource = $fileSafe
+          if ($numericSource.StartsWith('v', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $numericSource = $numericSource.Substring(1)
+          }
+
+          $numericCore = $numericSource.Split('-', 2)[0]
+          if ([string]::IsNullOrWhiteSpace($numericCore)) {
+            $numericCore = '0.0.0'
+          }
+
+          $segments = $numericCore.Split('.', [System.StringSplitOptions]::RemoveEmptyEntries)
+          if ($segments.Count -eq 0) {
+            $segments = @('0','0','0')
+          }
+
+          $intSegments = @()
+          foreach ($segment in $segments) {
+            if ($segment -match '^[0-9]+$') {
+              $intSegments += [int]$segment
+            }
+            else {
+              $intSegments += 0
+            }
+          }
+          while ($intSegments.Count -lt 4) {
+            $intSegments += 0
+          }
+
+          $major = $intSegments[0]
+          $minor = $intSegments[1]
+          $patch = $intSegments[2]
+          $build = $intSegments[3]
+
+          $semver = "{0}.{1}.{2}" -f $major, $minor, $patch
+          $productVersion = "{0}.{1}.{2}.{3}" -f $major, $minor, $patch, $build
+          $fileVersion = "{0},{1},{2},{3}" -f $major, $minor, $patch, $build
+          $hasTag = if ([string]::IsNullOrWhiteSpace($tagInput)) { 'false' } else { 'true' }
+
+          @(
+            "LICENX_VERSION_INPUT=$candidate"
+            "LICENX_VERSION_FILESAFE=$fileSafe"
+            "LICENX_VERSION_STRING=$fileSafe"
+            "LICENX_VERSION_SEMVER=$semver"
+            "LICENX_VERSION_MAJOR=$major"
+            "LICENX_VERSION_MINOR=$minor"
+            "LICENX_VERSION_PATCH=$patch"
+            "LICENX_VERSION_BUILD=$build"
+            "LICENX_VERSION_PRODUCT_VERSION=$productVersion"
+            "LICENX_VERSION_FILE_VERSION=$fileVersion"
+            "LICENX_VERSION_HAS_TAG=$hasTag"
+            "LICENX_VERSION_DOCKER_TAG=$dockerSafe"
+          ) | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+          Write-Host "Resolved LicenX version: $fileSafe (semver: $semver)"
+
+      - name: Prepare LicenX version metadata
+        shell: pwsh
+        env:
+          INPUT_TAG: ${{ env.LICENX_TAG }}
+          INPUT_DOCKER_TAG: ${{ github.event.inputs.docker-image-tag || '' }}
+          SUBMODULE_PATH: ${{ env.LICENX_SUBMODULE_PATH }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tagInput = $Env:INPUT_TAG
+          $dockerInput = $Env:INPUT_DOCKER_TAG
+          $workspace = $Env:GITHUB_WORKSPACE
+          $submoduleRel = $Env:SUBMODULE_PATH
+          $submoduleFull = if ([string]::IsNullOrWhiteSpace($submoduleRel)) { $null } else { Join-Path $workspace $submoduleRel }
+
+          $candidate = $null
+          if (-not [string]::IsNullOrWhiteSpace($tagInput)) {
+            $candidate = $tagInput.Trim()
+          }
+          elseif (-not [string]::IsNullOrWhiteSpace($dockerInput)) {
+            $candidate = $dockerInput.Trim()
+          }
+          elseif ($submoduleFull -and (Test-Path $submoduleFull)) {
+            try {
+              $shortSha = (& git -C $submoduleFull rev-parse --short=8 HEAD).Trim()
+              if (-not [string]::IsNullOrWhiteSpace($shortSha)) {
+                $candidate = "build-$shortSha"
+              }
+            }
+            catch {
+              Write-Warning "Failed to resolve LicenX commit hash: $_"
+            }
+          }
+
+          if ([string]::IsNullOrWhiteSpace($candidate)) {
+            $candidate = '0.0.0'
+          }
+
+          $fileSafe = $candidate -replace '[^0-9A-Za-z.+-]', '-'
+          if ([string]::IsNullOrWhiteSpace($fileSafe)) {
+            $fileSafe = '0.0.0'
+          }
+
+          $numericSource = $fileSafe
+          if ($numericSource.StartsWith('v', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $numericSource = $numericSource.Substring(1)
+          }
+
+          $numericCore = $numericSource.Split('-', 2)[0]
+          if ([string]::IsNullOrWhiteSpace($numericCore)) {
+            $numericCore = '0.0.0'
+          }
+
+          $segments = $numericCore.Split('.', [System.StringSplitOptions]::RemoveEmptyEntries)
+          if ($segments.Count -eq 0) {
+            $segments = @('0','0','0')
+          }
+
+          $intSegments = @()
+          foreach ($segment in $segments) {
+            if ($segment -match '^[0-9]+$') {
+              $intSegments += [int]$segment
+            }
+            else {
+              $intSegments += 0
+            }
+          }
+          while ($intSegments.Count -lt 4) {
+            $intSegments += 0
+          }
+
+          $major = $intSegments[0]
+          $minor = $intSegments[1]
+          $patch = $intSegments[2]
+          $build = $intSegments[3]
+
+          $semver = "{0}.{1}.{2}" -f $major, $minor, $patch
+          $productVersion = "{0}.{1}.{2}.{3}" -f $major, $minor, $patch, $build
+          $fileVersion = "{0},{1},{2},{3}" -f $major, $minor, $patch, $build
+          $hasTag = if ([string]::IsNullOrWhiteSpace($tagInput)) { 'false' } else { 'true' }
+
+          @(
+            "LICENX_VERSION_INPUT=$candidate"
+            "LICENX_VERSION_FILESAFE=$fileSafe"
+            "LICENX_VERSION_STRING=$fileSafe"
+            "LICENX_VERSION_SEMVER=$semver"
+            "LICENX_VERSION_MAJOR=$major"
+            "LICENX_VERSION_MINOR=$minor"
+            "LICENX_VERSION_PATCH=$patch"
+            "LICENX_VERSION_BUILD=$build"
+            "LICENX_VERSION_PRODUCT_VERSION=$productVersion"
+            "LICENX_VERSION_FILE_VERSION=$fileVersion"
+            "LICENX_VERSION_HAS_TAG=$hasTag"
+            "LICENX_VERSION_DOCKER_TAG=$dockerSafe"
+          ) | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+          Write-Host "Resolved LicenX version: $fileSafe (semver: $semver)"
 
       - name: Install build dependencies
         shell: bash
@@ -129,6 +530,9 @@ jobs:
           if ($Env:CMAKE_PREFIX_PATH) {
             $cmakeArgs += "-DCMAKE_PREFIX_PATH=$Env:CMAKE_PREFIX_PATH"
           }
+          if ($Env:LICENX_VERSION_STRING) {
+            $cmakeArgs += "-DLICENX_VERSION_STRING=$Env:LICENX_VERSION_STRING"
+          }
           cmake @cmakeArgs
 
       - name: Build LicenX artifacts
@@ -164,9 +568,13 @@ jobs:
           $sdkLibDir = Join-Path $sdkDir 'lib'
           $sdkIncludeDir = Join-Path $sdkDir 'include'
 
-          foreach ($dir in @($artifactsRoot, $publishDir, $cliDir, $sdkDir, $sdkLibDir, $sdkIncludeDir)) {
+          $directories = @($artifactsRoot, $publishDir, $cliDir, $sdkDir, $sdkLibDir, $sdkIncludeDir)
+          foreach ($dir in $directories) {
             if (-not (Test-Path $dir)) {
               New-Item -ItemType Directory -Path $dir | Out-Null
+            }
+            else {
+              Get-ChildItem -Path $dir -Force -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
             }
           }
 
@@ -192,7 +600,20 @@ jobs:
             throw "Expected CLI artifact not found. Checked: $($cliCandidates -join ', ')"
           }
 
-          Copy-Item $cliPath $cliDir -Force
+          $versionSegment = $Env:LICENX_VERSION_FILESAFE
+          $useVersionedNames = -not [string]::IsNullOrWhiteSpace($versionSegment)
+
+          $cliSourceName = Split-Path -Path $cliPath -Leaf
+          $cliBase = [System.IO.Path]::GetFileNameWithoutExtension($cliSourceName)
+          $cliExt = [System.IO.Path]::GetExtension($cliSourceName)
+          if ($useVersionedNames) {
+            $cliDestName = if ([string]::IsNullOrEmpty($cliExt)) { "$cliBase-$versionSegment" } else { "$cliBase-$versionSegment$cliExt" }
+          }
+          else {
+            $cliDestName = $cliSourceName
+          }
+          $cliDestPath = Join-Path $cliDir $cliDestName
+          Copy-Item $cliPath $cliDestPath -Force
 
           $libraryPatterns = @('licenx*.lib','licenx*.dll','licenx*.exp','licenx*.pdb','liblicenx*.a','liblicenx*.so','liblicenx*.dylib')
           $libraries = @()
@@ -204,7 +625,13 @@ jobs:
             throw "No LicenX library artifacts matching expected patterns were found in $outputDir"
           }
           foreach ($lib in $libraries) {
-            Copy-Item $lib.FullName $sdkLibDir -Force
+            $destName = $lib.Name
+            if ($useVersionedNames) {
+              $base = [System.IO.Path]::GetFileNameWithoutExtension($lib.Name)
+              $ext = $lib.Extension
+              $destName = if ([string]::IsNullOrEmpty($ext)) { "$base-$versionSegment" } else { "$base-$versionSegment$ext" }
+            }
+            Copy-Item $lib.FullName (Join-Path $sdkLibDir $destName) -Force
           }
 
           $includeSource = Join-Path $workspace (Join-Path $Env:LICENX_SOURCE_DIR 'include')
@@ -219,8 +646,9 @@ jobs:
           }
 
           $platform = $Env:ARTIFACT_PLATFORM_SUFFIX
-          $cliZip = Join-Path $publishDir "licenx-admin-cli-$platform.zip"
-          $sdkZip = Join-Path $publishDir "licenx-sdk-$platform.zip"
+          $artifactSuffix = if ($useVersionedNames) { "$platform-$versionSegment" } else { $platform }
+          $cliZip = Join-Path $publishDir "licenx-admin-cli-$artifactSuffix.zip"
+          $sdkZip = Join-Path $publishDir "licenx-sdk-$artifactSuffix.zip"
 
           if (Test-Path $cliZip) { Remove-Item $cliZip -Force }
           if (Test-Path $sdkZip) { Remove-Item $sdkZip -Force }
@@ -268,7 +696,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ergosumx/licenx
-          ref: ${{ github.event.inputs.licenx-branch || 'main' }}
+          ref: ${{ github.event.inputs.licenx-tag || github.event.inputs.licenx-branch || 'main' }}
           path: ${{ env.LICENX_SUBMODULE_PATH }}
           fetch-depth: 0
           submodules: recursive
@@ -315,6 +743,9 @@ jobs:
           if ($Env:CMAKE_PREFIX_PATH) {
             $cmakeArgs += "-DCMAKE_PREFIX_PATH=$Env:CMAKE_PREFIX_PATH"
           }
+          if ($Env:LICENX_VERSION_STRING) {
+            $cmakeArgs += "-DLICENX_VERSION_STRING=$Env:LICENX_VERSION_STRING"
+          }
           cmake @cmakeArgs
 
       - name: Build LicenX artifacts
@@ -350,9 +781,13 @@ jobs:
           $sdkLibDir = Join-Path $sdkDir 'lib'
           $sdkIncludeDir = Join-Path $sdkDir 'include'
 
-          foreach ($dir in @($artifactsRoot, $publishDir, $cliDir, $sdkDir, $sdkLibDir, $sdkIncludeDir)) {
+          $directories = @($artifactsRoot, $publishDir, $cliDir, $sdkDir, $sdkLibDir, $sdkIncludeDir)
+          foreach ($dir in $directories) {
             if (-not (Test-Path $dir)) {
               New-Item -ItemType Directory -Path $dir | Out-Null
+            }
+            else {
+              Get-ChildItem -Path $dir -Force -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
             }
           }
 
@@ -378,7 +813,20 @@ jobs:
             throw "Expected CLI artifact not found. Checked: $($cliCandidates -join ', ')"
           }
 
-          Copy-Item $cliPath $cliDir -Force
+          $versionSegment = $Env:LICENX_VERSION_FILESAFE
+          $useVersionedNames = -not [string]::IsNullOrWhiteSpace($versionSegment)
+
+          $cliSourceName = Split-Path -Path $cliPath -Leaf
+          $cliBase = [System.IO.Path]::GetFileNameWithoutExtension($cliSourceName)
+          $cliExt = [System.IO.Path]::GetExtension($cliSourceName)
+          if ($useVersionedNames) {
+            $cliDestName = if ([string]::IsNullOrEmpty($cliExt)) { "$cliBase-$versionSegment" } else { "$cliBase-$versionSegment$cliExt" }
+          }
+          else {
+            $cliDestName = $cliSourceName
+          }
+          $cliDestPath = Join-Path $cliDir $cliDestName
+          Copy-Item $cliPath $cliDestPath -Force
 
           $libraryPatterns = @('licenx*.lib','licenx*.dll','licenx*.exp','licenx*.pdb','liblicenx*.a','liblicenx*.so','liblicenx*.dylib')
           $libraries = @()
@@ -390,7 +838,13 @@ jobs:
             throw "No LicenX library artifacts matching expected patterns were found in $outputDir"
           }
           foreach ($lib in $libraries) {
-            Copy-Item $lib.FullName $sdkLibDir -Force
+            $destName = $lib.Name
+            if ($useVersionedNames) {
+              $base = [System.IO.Path]::GetFileNameWithoutExtension($lib.Name)
+              $ext = $lib.Extension
+              $destName = if ([string]::IsNullOrEmpty($ext)) { "$base-$versionSegment" } else { "$base-$versionSegment$ext" }
+            }
+            Copy-Item $lib.FullName (Join-Path $sdkLibDir $destName) -Force
           }
 
           $includeSource = Join-Path $workspace (Join-Path $Env:LICENX_SOURCE_DIR 'include')
@@ -405,8 +859,9 @@ jobs:
           }
 
           $platform = $Env:ARTIFACT_PLATFORM_SUFFIX
-          $cliZip = Join-Path $publishDir "licenx-admin-cli-$platform.zip"
-          $sdkZip = Join-Path $publishDir "licenx-sdk-$platform.zip"
+          $artifactSuffix = if ($useVersionedNames) { "$platform-$versionSegment" } else { $platform }
+          $cliZip = Join-Path $publishDir "licenx-admin-cli-$artifactSuffix.zip"
+          $sdkZip = Join-Path $publishDir "licenx-sdk-$artifactSuffix.zip"
 
           if (Test-Path $cliZip) { Remove-Item $cliZip -Force }
           if (Test-Path $sdkZip) { Remove-Item $sdkZip -Force }
@@ -455,7 +910,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ergosumx/licenx
-          ref: ${{ github.event.inputs.licenx-branch || 'main' }}
+          ref: ${{ github.event.inputs.licenx-tag || github.event.inputs.licenx-branch || 'main' }}
           path: ${{ env.LICENX_SUBMODULE_PATH }}
           fetch-depth: 0
           submodules: recursive
@@ -492,6 +947,9 @@ jobs:
           if ($Env:CMAKE_PREFIX_PATH) {
             $cmakeArgs += "-DCMAKE_PREFIX_PATH=$Env:CMAKE_PREFIX_PATH"
           }
+          if ($Env:LICENX_VERSION_STRING) {
+            $cmakeArgs += "-DLICENX_VERSION_STRING=$Env:LICENX_VERSION_STRING"
+          }
           cmake @cmakeArgs
 
       - name: Build LicenX artifacts
@@ -527,9 +985,13 @@ jobs:
           $sdkLibDir = Join-Path $sdkDir 'lib'
           $sdkIncludeDir = Join-Path $sdkDir 'include'
 
-          foreach ($dir in @($artifactsRoot, $publishDir, $cliDir, $sdkDir, $sdkLibDir, $sdkIncludeDir)) {
+          $directories = @($artifactsRoot, $publishDir, $cliDir, $sdkDir, $sdkLibDir, $sdkIncludeDir)
+          foreach ($dir in $directories) {
             if (-not (Test-Path $dir)) {
               New-Item -ItemType Directory -Path $dir | Out-Null
+            }
+            else {
+              Get-ChildItem -Path $dir -Force -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
             }
           }
 
@@ -555,7 +1017,20 @@ jobs:
             throw "Expected CLI artifact not found. Checked: $($cliCandidates -join ', ')"
           }
 
-          Copy-Item $cliPath $cliDir -Force
+          $versionSegment = $Env:LICENX_VERSION_FILESAFE
+          $useVersionedNames = -not [string]::IsNullOrWhiteSpace($versionSegment)
+
+          $cliSourceName = Split-Path -Path $cliPath -Leaf
+          $cliBase = [System.IO.Path]::GetFileNameWithoutExtension($cliSourceName)
+          $cliExt = [System.IO.Path]::GetExtension($cliSourceName)
+          if ($useVersionedNames) {
+            $cliDestName = if ([string]::IsNullOrEmpty($cliExt)) { "$cliBase-$versionSegment" } else { "$cliBase-$versionSegment$cliExt" }
+          }
+          else {
+            $cliDestName = $cliSourceName
+          }
+          $cliDestPath = Join-Path $cliDir $cliDestName
+          Copy-Item $cliPath $cliDestPath -Force
 
           $libraryPatterns = @('licenx*.lib','licenx*.dll','licenx*.exp','licenx*.pdb','liblicenx*.a','liblicenx*.so','liblicenx*.dylib')
           $libraries = @()
@@ -567,7 +1042,13 @@ jobs:
             throw "No LicenX library artifacts matching expected patterns were found in $outputDir"
           }
           foreach ($lib in $libraries) {
-            Copy-Item $lib.FullName $sdkLibDir -Force
+            $destName = $lib.Name
+            if ($useVersionedNames) {
+              $base = [System.IO.Path]::GetFileNameWithoutExtension($lib.Name)
+              $ext = $lib.Extension
+              $destName = if ([string]::IsNullOrEmpty($ext)) { "$base-$versionSegment" } else { "$base-$versionSegment$ext" }
+            }
+            Copy-Item $lib.FullName (Join-Path $sdkLibDir $destName) -Force
           }
 
           $includeSource = Join-Path $workspace (Join-Path $Env:LICENX_SOURCE_DIR 'include')
@@ -582,8 +1063,9 @@ jobs:
           }
 
           $platform = $Env:ARTIFACT_PLATFORM_SUFFIX
-          $cliZip = Join-Path $publishDir "licenx-admin-cli-$platform.zip"
-          $sdkZip = Join-Path $publishDir "licenx-sdk-$platform.zip"
+          $artifactSuffix = if ($useVersionedNames) { "$platform-$versionSegment" } else { $platform }
+          $cliZip = Join-Path $publishDir "licenx-admin-cli-$artifactSuffix.zip"
+          $sdkZip = Join-Path $publishDir "licenx-sdk-$artifactSuffix.zip"
 
           if (Test-Path $cliZip) { Remove-Item $cliZip -Force }
           if (Test-Path $sdkZip) { Remove-Item $sdkZip -Force }
@@ -635,7 +1117,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ergosumx/licenx
-          ref: ${{ github.event.inputs.licenx-branch || 'main' }}
+          ref: ${{ github.event.inputs.licenx-tag || github.event.inputs.licenx-branch || 'main' }}
           path: ${{ env.LICENX_SUBMODULE_PATH }}
           fetch-depth: 0
           submodules: recursive
@@ -688,6 +1170,9 @@ jobs:
           }
           if ($Env:CMAKE_PREFIX_PATH) {
             $cmakeArgs += "-DCMAKE_PREFIX_PATH=$Env:CMAKE_PREFIX_PATH"
+          }
+          if ($Env:LICENX_VERSION_STRING) {
+            $cmakeArgs += "-DLICENX_VERSION_STRING=$Env:LICENX_VERSION_STRING"
           }
           cmake @cmakeArgs
 
@@ -819,23 +1304,149 @@ jobs:
 
           az acr login --name $Env:ACR_REGISTRY
 
-          $tagInput = "${{ github.event.inputs.docker-image-tag }}"
-          if ([string]::IsNullOrWhiteSpace($tagInput)) {
-            $tag = 'latest'
-            Write-Host "::notice::docker-image-tag input not provided; defaulting to $tag"
-          } else {
-            $tag = $tagInput
+          $imageTag = $Env:LICENX_VERSION_FILESAFE
+          if ([string]::IsNullOrWhiteSpace($imageTag)) {
+            $imageTag = 'latest'
+            Write-Host "LICENX_VERSION_FILESAFE not set; defaulting docker tag to: $imageTag"
+          }
+          else {
+            Write-Host "Using version segment for image tag: $imageTag"
           }
 
-          $tag = $tag.Trim()
+          $fullTag = "$acrLoginServer/${acrImageName}:$imageTag"
+          Write-Host "Building image with tag: $fullTag"
 
-          $fullTagLatest = "$acrLoginServer/${acrImageName}:latest"
-          $fullTagCustom = "$acrLoginServer/${acrImageName}:${tag}"
+          docker build --file $dockerfile --tag $fullTag $context
+          docker push $fullTag
 
-          Write-Host "Building image with tags: $fullTagLatest and $fullTagCustom"
+      - name: Create release in LicenX submodule
+        if: ${{ env.LICENX_TAG != '' }}
+        shell: bash
+        env:
+          REPO: ergosumx/licenx
+          TOKEN: ${{ secrets.ERGOX_SUBMODULE_TOKEN }}
+          SUBMODULE_PATH: ${{ env.LICENX_SUBMODULE_PATH }}
+          TAG: ${{ github.event.inputs.licenx-tag }}
+          ASSET_DIRS: |
+            ${{ github.workspace }}/collected/windows/publish
+            ${{ github.workspace }}/collected/linux/publish
+            ${{ github.workspace }}/collected/macos/publish
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
 
-          docker build --file $dockerfile --tag $fullTagLatest --tag $fullTagCustom $context
-          docker push $fullTagLatest
-          if ($tag -ne 'latest') {
-            docker push $fullTagCustom
-          }
+          token = os.environ.get("TOKEN")
+          tag = os.environ.get("TAG")
+          if not token:
+              print("::error::ERGOX_SUBMODULE_TOKEN secret is not available")
+              sys.exit(1)
+          if not tag:
+              print("::warning::Release tag input is empty; skipping release creation")
+              sys.exit(0)
+
+          repo = os.environ["REPO"]
+          workspace = os.environ["GITHUB_WORKSPACE"]
+          submodule_rel = os.environ.get("SUBMODULE_PATH", "")
+          submodule_path = os.path.join(workspace, submodule_rel)
+          asset_dirs = [line.strip() for line in os.environ.get("ASSET_DIRS", "").splitlines() if line.strip()]
+
+          if not os.path.isdir(submodule_path):
+              print(f"::error::Submodule path {submodule_path} not found")
+              sys.exit(1)
+
+          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=submodule_path, text=True).strip()
+          print(f"Preparing release {tag} for commit {sha}")
+
+          def api_request(method: str, url: str, data: bytes | None = None, headers: dict | None = None):
+              headers = headers.copy() if headers else {}
+              headers.setdefault("Authorization", f"token {token}")
+              headers.setdefault("Accept", "application/vnd.github+json")
+              if data is not None and "Content-Type" not in headers:
+                  headers["Content-Type"] = "application/json"
+              request = urllib.request.Request(url, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(request) as response:
+                      return response.getcode(), response.read()
+              except urllib.error.HTTPError as exc:
+                  return exc.code, exc.read()
+
+          payload = json.dumps({
+              "tag_name": tag,
+              "name": tag,
+              "body": f"Automated release for {tag}",
+              "target_commitish": sha,
+          }).encode("utf-8")
+
+          create_url = f"https://api.github.com/repos/{repo}/releases"
+          status, body = api_request("POST", create_url, data=payload)
+
+          if status in (200, 201):
+              release = json.loads(body)
+              print(f"Created new release {tag} (HTTP {status})")
+          elif status == 422:
+              lookup_url = f"https://api.github.com/repos/{repo}/releases/tags/{urllib.parse.quote(tag)}"
+              status, body = api_request("GET", lookup_url)
+              if status != 200:
+                  print(f"::error::Failed to retrieve existing release for {tag} (HTTP {status})\n{body.decode('utf-8', 'ignore')}")
+                  sys.exit(1)
+              release = json.loads(body)
+              print(f"Reusing existing release {tag}")
+          else:
+              print(f"::error::Failed to create release (HTTP {status})\n{body.decode('utf-8', 'ignore')}")
+              sys.exit(1)
+
+          upload_url = release.get("upload_url", "").split("{")[0]
+          release_id = release.get("id")
+          if not upload_url or not release_id:
+              print("::error::Release response missing upload URL or ID")
+              sys.exit(1)
+
+          existing_assets = []
+          assets_url = f"https://api.github.com/repos/{repo}/releases/{release_id}/assets"
+          status, assets_body = api_request("GET", assets_url)
+          if status == 200:
+              existing_assets = json.loads(assets_body)
+          else:
+              print(f"::warning::Failed to list existing assets (HTTP {status})")
+
+          selected_files: list[tuple[str, str]] = []
+          for directory in asset_dirs:
+              if not os.path.isdir(directory):
+                  print(f"::warning::Asset directory {directory} not found; skipping")
+                  continue
+              for entry in sorted(os.listdir(directory)):
+                  path = os.path.join(directory, entry)
+                  if os.path.isfile(path) and entry.lower().endswith(".zip"):
+                      selected_files.append((entry, path))
+
+          if not selected_files:
+              print("::warning::No release assets discovered; release will not include binaries")
+          else:
+              for asset in existing_assets:
+                  if any(asset.get("name") == name for name, _ in selected_files):
+                      delete_status, _ = api_request("DELETE", asset.get("url"))
+                      if delete_status not in (200, 204):
+                          print(f"::warning::Failed to delete existing asset {asset.get('name')} (HTTP {delete_status})")
+
+              for name, path in selected_files:
+                  with open(path, "rb") as handle:
+                      data = handle.read()
+                  target = f"{upload_url}?name={urllib.parse.quote(name)}"
+                  headers = {"Content-Type": "application/zip"}
+                  upload_status, upload_body = api_request("POST", target, data=data, headers=headers)
+                  if upload_status not in (200, 201):
+                      print(f"::error::Failed to upload asset {name} (HTTP {upload_status})\n{upload_body.decode('utf-8', 'ignore')}")
+                      sys.exit(1)
+                  print(f"Uploaded asset {name} ({len(data)} bytes)")
+
+          html_url = release.get("html_url")
+          if html_url:
+              print(f"Release available at {html_url}")
+          PY
