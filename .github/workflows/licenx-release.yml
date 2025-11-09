@@ -30,6 +30,7 @@ on:
         required: false
 
 permissions:
+  actions: write
   contents: read
   id-token: write
   packages: write
@@ -1450,3 +1451,29 @@ jobs:
           if html_url:
               print(f"Release available at {html_url}")
           PY
+
+      - name: Delete workflow artifacts
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          names=("licenx-linux" "licenx-macos" "licenx-windows")
+          for name in "${names[@]}"; do
+            ids=$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+              --paginate \
+              --jq ".artifacts[] | select(.name==\"$name\") | .id")
+            if [[ -z "${ids}" ]]; then
+              continue
+            fi
+            for id in ${ids}; do
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                repos/${{ github.repository }}/actions/artifacts/${id} \
+                -X DELETE \
+                >/dev/null
+            done
+          done
