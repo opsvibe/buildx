@@ -24,9 +24,9 @@ Cross-compilation is mandatory for Android because device binaries cannot be pro
 1. **Install Android NDK** – download the latest NDK from Google and configure `ANDROID_NDK_HOME` or run from Android Studio. The NDK bundles the cross-compilers for ARM and x86 targets.
 2. **Configure vcpkg** – use the Android triplets (`arm64-android`, `x64-android`, etc.). For whisper.cpp compatibility, always include `swresample` in the feature list:
 
-	```bash
-	./vcpkg install ffmpeg[avcodec,avformat,avdevice,avfilter,swresample,swscale] --triplet arm64-android
-	```
+   ```bash
+   ./vcpkg install ffmpeg[avcodec,avformat,avdevice,avfilter,swresample,swscale] --triplet arm64-android
+   ```
 
 3. **Integrate outputs** – copy the generated `.so` files into your Android app module and consume them via JNI or native C++ (NDK). The exported artifacts land in `third_party/ffmpeg/android-arm64` when built via GitHub Actions.
 
@@ -37,9 +37,9 @@ iOS binaries must be produced on macOS with Xcode, so our workflow pins these jo
 1. **Install Xcode + command-line tools** – provides the iOS SDK and compilers.
 2. **Configure vcpkg** – use the `arm64-ios` (devices) or `x86_64-ios` (simulator) triplets. Include `swresample` for parity with desktop builds:
 
-	```bash
-	./vcpkg install ffmpeg[avcodec,avformat,avdevice,avfilter,swresample,swscale] --triplet arm64-ios
-	```
+   ```bash
+   ./vcpkg install ffmpeg[avcodec,avformat,avdevice,avfilter,swresample,swscale] --triplet arm64-ios
+   ```
 
 3. **Integrate outputs** – add the produced `.a` or `.dylib` files to your Xcode project, set `ARCHS` appropriately (`arm64` for devices, `x86_64` for simulator), and link them alongside whisper.cpp.
 
