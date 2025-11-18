@@ -1,0 +1,148 @@
+name: ffmpeg-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Optional note describing why the artifacts are being regenerated
+        required: false
+  push:
+    paths:
+      - .github/workflows/ffmpeg-release.yml
+      - vcpkg/**
+
+jobs:
+  build:
+    name: Build FFmpeg (${{ matrix.export_dir }})
+    runs-on: ${{ matrix.os }}
+    env:
+      VCPKG_DISABLE_METRICS: "1"
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      FFMPEG_FEATURES: ffmpeg[avcodec,avformat,avdevice,avfilter,swresample,swscale]
+      EXPORT_DIR: ${{ github.workspace }}/third_party/ffmpeg/${{ matrix.export_dir }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            triplet: x64-linux
+            export_dir: linux-x64
+            bootstrap: ./vcpkg/bootstrap-vcpkg.sh
+            exec: ./vcpkg/vcpkg
+            setup: ""
+          - os: ubuntu-22.04
+            triplet: arm64-linux
+            export_dir: linux-arm64
+            bootstrap: ./vcpkg/bootstrap-vcpkg.sh
+            exec: ./vcpkg/vcpkg
+            setup: |
+              sudo apt-get update
+              sudo apt-get install -y g++-aarch64-linux-gnu pkg-config-aarch64-linux-gnu
+          - os: ubuntu-22.04
+            triplet: arm64-android
+            export_dir: android-arm64
+            bootstrap: ./vcpkg/bootstrap-vcpkg.sh
+            exec: ./vcpkg/vcpkg
+            setup: |
+              sudo apt-get update
+              sudo apt-get install -y unzip zip default-jdk
+          - os: macos-14
+            triplet: arm64-osx
+            export_dir: macos-arm64
+            bootstrap: ./vcpkg/bootstrap-vcpkg.sh
+            exec: ./vcpkg/vcpkg
+            setup: ""
+          - os: macos-13
+            triplet: x64-osx
+            export_dir: macos-x64
+            bootstrap: ./vcpkg/bootstrap-vcpkg.sh
+            exec: ./vcpkg/vcpkg
+            setup: ""
+          - os: macos-14
+            triplet: arm64-ios
+            export_dir: ios-arm64
+            bootstrap: ./vcpkg/bootstrap-vcpkg.sh
+            exec: ./vcpkg/vcpkg
+            setup: ""
+          - os: windows-2022
+            triplet: x64-windows
+            export_dir: windows-x64
+            bootstrap: .\vcpkg\bootstrap-vcpkg.bat
+            exec: .\vcpkg\vcpkg.exe
+            setup: ""
+          - os: windows-2022
+            triplet: arm64-windows
+            export_dir: windows-arm64
+            bootstrap: .\vcpkg\bootstrap-vcpkg.bat
+            exec: .\vcpkg\vcpkg.exe
+            setup: ""
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install host prerequisites
+        if: runner.os != 'Windows' && matrix.setup != ''
+        run: ${{ matrix.setup }}
+        shell: bash
+
+      - name: Ensure staging root (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p "$(dirname \"${{ env.EXPORT_DIR }}\")"
+        shell: bash
+
+      - name: Ensure staging root (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $parent = Split-Path -Parent "${{ env.EXPORT_DIR }}"
+          if (-not (Test-Path $parent)) {
+            New-Item -ItemType Directory -Path $parent | Out-Null
+          }
+        shell: pwsh
+
+      - name: Clean previous export (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          rm -rf "${{ env.EXPORT_DIR }}"
+        shell: bash
+
+      - name: Clean previous export (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (Test-Path "${{ env.EXPORT_DIR }}") {
+            Remove-Item -Recurse -Force "${{ env.EXPORT_DIR }}"
+          }
+        shell: pwsh
+
+      - name: Bootstrap vcpkg
+        run: ${{ matrix.bootstrap }}
+
+      - name: Install FFmpeg dependencies
+        run: >-
+          ${{ matrix.exec }} install ${{ env.FFMPEG_FEATURES }} --triplet ${{ matrix.triplet }}
+
+      - name: Export FFmpeg payload
+        run: >-
+          ${{ matrix.exec }} export ffmpeg --triplet ${{ matrix.triplet }} --raw --output="${{ env.EXPORT_DIR }}"
+
+      - name: List exported contents
+        if: runner.os != 'Windows'
+        run: |
+          ls -R "${{ env.EXPORT_DIR }}"
+        shell: bash
+
+      - name: List exported contents (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Get-ChildItem -Recurse "${{ env.EXPORT_DIR }}"
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.export_dir }}-ffmpeg
+          path: ${{ env.EXPORT_DIR }}
+          if-no-files-found: error
